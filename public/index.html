@@ -161,6 +161,10 @@
 
       socket.on('connect', () => {
         console.log('Socket 已连接');
+        // 关键：连接成功后发送 login 事件，触发后端拉取离线申请并绑定在线状态
+        if (currentUser && currentUser.id) {
+          socket.emit('login', currentUser.id);
+        }
         fetchFriends(); fetchFriendRequests(); fetchGroups(); fetchNotifications();
         if(activeNav === 'messages') renderConversationList();
       });
@@ -173,10 +177,12 @@
         console.error('Socket 连接错误:', err.message);
       });
 
-      // ③ 接收离线好友申请（登录时拉取）
+      // 接收离线好友申请（登录时拉取）
       socket.on("pending_friend_requests", (list) => {
         console.log("收到离线好友申请列表", list);
-        list.forEach(showFriendRequestPopup);
+        if (Array.isArray(list)) {
+          list.forEach(showFriendRequestPopup);
+        }
       });
 
       // 实时好友申请
@@ -255,10 +261,9 @@
 
     // 好友申请弹窗处理函数（支持离线和实时）
     function showFriendRequestPopup(data) {
-      // 确保 data 包含必要字段
-      if (!data || !data.fromId && !data.from_user) return;
+      if (!data) return;
       const fromId = data.fromId || data.from_user;
-      const message = data.message || '请求添加好友';
+      if (!fromId) return;
       
       // 刷新好友请求列表和未读角标
       fetchFriendRequests();
