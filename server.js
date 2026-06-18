@@ -154,11 +154,12 @@ const db = new Pool({
   ssl: { rejectUnauthorized: false }
 });
 
-// ========== Session 持久化到 PostgreSQL ==========
+// ========== Session 持久化到 PostgreSQL（增加 createTableIfMissing） ==========
 const sessionMiddleware = session({
   store: new pgSession({
     pool: db,
-    tableName: 'session'
+    tableName: 'session',
+    createTableIfMissing: true
   }),
   secret: process.env.SESSION_SECRET,
   resave: false,
@@ -255,7 +256,6 @@ const onlineUsers = new Map();
 
 // ========== 数据库初始化（含 session 表） ==========
 async function initDB() {
-  // 显式创建 session 表，防止 connect-pg-simple 创建失败
   await db.query(`
     CREATE TABLE IF NOT EXISTS "session" (
       sid VARCHAR PRIMARY KEY,
@@ -350,14 +350,12 @@ async function initDB() {
     );
   `);
 
-  // 插入超级邀请码
   await db.query(`
     INSERT INTO invite_codes (code, creator, is_permanent, max_uses, used_count)
     VALUES ('20040705', NULL, true, 99999, 0)
     ON CONFLICT (code) DO NOTHING;
   `);
 
-  // 恢复文件所有者
   try {
     const { rows } = await db.query('SELECT filename, owner_id FROM uploaded_files');
     rows.forEach(r => fileOwners.set(r.filename, r.owner_id));
@@ -415,12 +413,36 @@ const processedMsgIds = new Set();
 setInterval(() => processedMsgIds.clear(), 5 * 60 * 1000);
 
 io.on('connection', (socket) => {
+  // 记录在线用户（通过 session 中间件已验证 userId）
   if (socket.userId) {
     onlineUsers.set(socket.userId, socket.id);
     socket.join(`user_${socket.userId}`);
-    console.log(`用户 ${socket.userId} 已连接`);
+    console.log(`用户 ${socket.userId} 已连接，当前在线用户数：${onlineUsers.size}`);
   }
 
+  // ① 客户端主动登录绑定（冗余但允许）
+  socket.on("login", (userId) => {
+    if (userId) {
+      onlineUsers.set(userId, socket.id);
+      console.log("在线用户表：", onlineUsers);
+    }
+  });
+
+  // ③ 好友申请 Socket 事件
+  socket.on("friend_request", ({ fromId, toId }) => {
+    console.log("收到好友申请事件", { fromId, toId });
+    const targetSocket = onlineUsers.get(toId);
+    console.log("目标socket:", targetSocket);
+
+    if (targetSocket) {
+      io.to(targetSocket).emit("friend_request_received", {
+        fromId,
+        toId
+      });
+    }
+  });
+
+  // 私聊消息
   socket.on('private message', async (data, ack) => {
     if (!socket.userId) {
       if (typeof ack === 'function') ack({ success: false, error: '未登录' });
@@ -519,7 +541,7 @@ io.on('connection', (socket) => {
     }
   });
 
-  // WebRTC 信令（保持不变）
+  // WebRTC 信令
   socket.on('call_offer', (data) => {
     const { to, offer } = data;
     if (!to || !offer) return;
@@ -549,7 +571,7 @@ io.on('connection', (socket) => {
   socket.on('disconnect', () => {
     if (socket.userId) {
       onlineUsers.delete(socket.userId);
-      console.log(`用户 ${socket.userId} 断开连接`);
+      console.log(`用户 ${socket.userId} 断开连接，当前在线用户数：${onlineUsers.size}`);
     }
   });
 });
@@ -700,7 +722,7 @@ app.get('/api/friends', auth, async (req, res) => {
   }
 });
 
-// 好友请求
+// 好友请求（HTTP API）
 app.post('/api/friend-request', auth, friendRequestLimiter, async (req, res) => {
   const { to, toUsername, message } = req.body;
   try {
@@ -739,8 +761,12 @@ app.post('/api/friend-request', auth, friendRequestLimiter, async (req, res) => 
       [req.userId, targetId, message ? sanitizeText(message) : '请求添加好友']
     );
 
+    // 通知对方（兼容两种事件名）
     const targetSid = onlineUsers.get(targetId);
-    if (targetSid) io.to(targetSid).emit('new_friend_request');
+    if (targetSid) {
+      io.to(targetSid).emit('new_friend_request');
+      io.to(targetSid).emit('friend_request_received', { fromId: req.userId, toId: targetId });
+    }
 
     res.json({ message: '申请已发送' });
   } catch (err) {
@@ -790,7 +816,11 @@ app.post('/api/add-by-invite', auth, async (req, res) => {
     );
 
     const targetSid = onlineUsers.get(targetId);
-    if (targetSid) io.to(targetSid).emit('new_friend_request');
+    if (targetSid) {
+      io.to(targetSid).emit('new_friend_request');
+      io.to(targetSid).emit('friend_request_received', { fromId: req.userId, toId: targetId });
+    }
+
     res.json({ message: '好友申请已发送' });
   } catch (err) {
     console.error(err);
