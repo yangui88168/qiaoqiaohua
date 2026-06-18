@@ -1,856 +1,1318 @@
-<!DOCTYPE html>
-<html lang="zh">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=yes">
-  <title>小鱼先生 · 即时通讯</title>
-  <style>
-    :root {
-      --primary: #4f5bff;
-      --primary-light: #eef0ff;
-      --bg: #f5f6fa;
-      --surface: #fff;
-      --text: #1e293b;
-      --text-secondary: #64748b;
-      --border: #e2e8f0;
-      --danger: #ef4444;
-    }
-    * { margin:0; padding:0; box-sizing:border-box; }
-    body { font-family: system-ui, -apple-system, sans-serif; background: var(--bg); height:100vh; display:flex; justify-content:center; align-items:center; }
-    #app { width:100%; max-width:1400px; height:100vh; background:var(--surface); display:flex; flex-direction:column; overflow:hidden; }
+require('dotenv').config();
+const express = require('express');
+const http = require('http');
+const { Server } = require('socket.io');
+const session = require('express-session');
+const pgSession = require('connect-pg-simple')(session);
+const { Pool } = require('pg');
+const multer = require('multer');
+const crypto = require('crypto');
+const bcrypt = require('bcrypt');
+const helmet = require('helmet');
+const cors = require('cors');
+const compression = require('compression');
+const rateLimit = require('express-rate-limit');
+const path = require('path');
+const fs = require('fs');
 
-    .auth-wrapper { display:flex; align-items:center; justify-content:center; height:100%; padding:20px; }
-    .auth-card { width:100%; max-width:400px; background:#fff; border-radius:24px; padding:40px 30px; box-shadow:0 10px 25px rgba(0,0,0,0.05); }
-    .auth-card h2 { text-align:center; margin-bottom:8px; }
-    .input-field { margin-bottom:18px; }
-    .input-field label { display:block; font-size:13px; color:var(--text-secondary); margin-bottom:6px; }
-    .input-field input { width:100%; padding:12px 16px; border:1px solid var(--border); border-radius:10px; font-size:15px; outline:none; }
-    .btn { background:var(--primary); color:white; border:none; padding:12px 20px; border-radius:10px; font-weight:600; cursor:pointer; width:100%; }
-    .btn-outline { background:transparent; border:1px solid var(--primary); color:var(--primary); }
-    .btn-small { padding:6px 12px; font-size:13px; width:auto; }
-    .text-link { color:var(--primary); font-size:14px; cursor:pointer; display:block; text-align:center; margin-top:12px; }
-    .error-text { color:var(--danger); font-size:13px; margin-top:8px; }
+// ========== 环境变量检查 ==========
+if (!process.env.SESSION_SECRET) {
+  console.error('SESSION_SECRET 未配置');
+  process.exit(1);
+}
+if (!process.env.DATABASE_URL) {
+  console.error('DATABASE_URL 未配置');
+  process.exit(1);
+}
 
-    .main-layout { display:flex; flex:1; overflow:hidden; min-height:0; }
-    .sidebar { width:260px; background:#f9fafb; border-right:1px solid var(--border); padding:16px; flex-shrink:0; display:flex; flex-direction:column; }
-    .content-panel { flex:1; display:flex; flex-direction:column; overflow:hidden; min-height:0; height:100%; }
-    .bottom-nav { display:none; background:#fff; border-top:1px solid var(--border); padding:6px 0; justify-content:space-around; position:fixed; bottom:0; left:0; right:0; z-index:100; height:60px; }
-    .nav-item-mobile { display:flex; flex-direction:column; align-items:center; font-size:11px; color:var(--text-secondary); cursor:pointer; position:relative; }
-    .nav-item-mobile.active { color:var(--primary); }
-    .badge-mobile { background:var(--danger); color:#fff; border-radius:10px; padding:1px 5px; font-size:10px; position:absolute; top:-6px; right:-12px; }
-    .nav-item { padding:10px 14px; border-radius:10px; cursor:pointer; display:flex; align-items:center; gap:10px; font-weight:500; color:var(--text); margin-bottom:4px; }
-    .nav-item.active { background:var(--primary-light); color:var(--primary); }
-    .badge { background:var(--danger); color:#fff; border-radius:20px; padding:2px 8px; font-size:11px; margin-left:auto; }
-    .top-bar { padding:12px 20px; border-bottom:1px solid var(--border); display:flex; align-items:center; gap:12px; min-height:56px; background:#fff; flex-shrink:0; }
-    .search-box { flex:1; padding:8px 16px; border:1px solid var(--border); border-radius:20px; background:#f8fafc; outline:none; }
-    .icon-btn { background:none; border:none; font-size:20px; cursor:pointer; padding:8px; border-radius:8px; }
+const app = express();
+const server = http.createServer(app);
 
-    .chat-split { display:flex; flex:1; overflow:hidden; min-height:0; height:100%; }
-    .conversation-list { width:320px; border-right:1px solid var(--border); overflow-y:auto; background:#fff; }
-    .chat-window { flex:1; display:flex; flex-direction:column; overflow:hidden; min-height:0; height:100%; position:relative; }
-    .conversation-item { display:flex; align-items:center; padding:14px 16px; cursor:pointer; border-bottom:1px solid #f1f5f9; }
-    .conversation-item.active { background:var(--primary-light); }
-    .conversation-info { flex:1; margin-left:12px; }
-    .conversation-name { font-weight:500; }
-    .conversation-lastmsg { font-size:13px; color:var(--text-secondary); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-    .unread-count { background:var(--danger); color:#fff; border-radius:12px; padding:2px 7px; font-size:11px; margin-left:8px; }
+// ========== Render 反向代理信任 ==========
+app.set('trust proxy', 1);
 
-    .chat-messages-container { flex:1 1 auto; overflow-y:auto; min-height:0; height:0; }
-    .chat-messages { display:flex; flex-direction:column; gap:8px; padding:20px; min-height:100%; }
-    .msg-item { max-width:70%; padding:8px 14px; border-radius:18px; background:#f1f5f9; align-self:flex-start; word-break:break-word; position:relative; }
-    .msg-item.self { align-self:flex-end; background:var(--primary); color:#fff; }
-    .msg-item img { max-width:200px; border-radius:12px; margin:5px 0; }
-    .msg-item video { max-width:250px; border-radius:12px; }
-    .msg-item audio { margin-top:5px; }
-    .msg-item .file-link { color:inherit; text-decoration:underline; }
-    .msg-delete-btn { position:absolute; top:2px; right:6px; background:rgba(0,0,0,0.5); color:#fff; border:none; border-radius:50%; width:18px; height:18px; font-size:12px; line-height:1; display:block; opacity:0.6; cursor:pointer; }
-    .msg-item:hover .msg-delete-btn { opacity:1; }
+// ========== CORS 安全配置 ==========
+const ALLOWED_ORIGINS = process.env.ALLOWED_ORIGIN
+  ? process.env.ALLOWED_ORIGIN.split(',').map(o => o.trim())
+  : true;
 
-    .msg-input-area {
-      flex-shrink:0;
-      display:flex;
-      padding:12px 16px;
-      border-top:1px solid var(--border);
-      background:#fff;
-      gap:8px;
-    }
-    .msg-input-area input { flex:1; padding:10px 16px; border:1px solid var(--border); border-radius:24px; outline:none; }
-    .attach-btn { background:var(--primary-light); border:none; border-radius:50%; width:36px; height:36px; font-size:18px; cursor:pointer; }
-    .emoji-btn, .voice-btn { background:var(--primary-light); border:none; border-radius:50%; width:36px; height:36px; font-size:18px; cursor:pointer; }
+app.use(helmet({ contentSecurityPolicy: false })); // 未来启用 CSP 可提高安全性
+app.use(compression());
+app.use(cors({
+  origin: ALLOWED_ORIGINS,
+  credentials: true
+}));
+app.use(express.json({ limit: '1mb' }));
 
-    .view-container { flex:1; overflow-y:auto; padding:20px; min-height:0; }
-    .list-item { display:flex; align-items:center; justify-content:space-between; padding:12px 16px; border-radius:10px; margin-bottom:6px; cursor:pointer; }
-    .list-item:hover { background:#f8fafc; }
-    .card { background:#fff; border-radius:16px; padding:24px; border:1px solid var(--border); margin-bottom:16px; }
-    .section-title { font-size:14px; color:var(--text-secondary); padding:8px 0; font-weight:500; }
-    .avatar-sm { width:36px; height:36px; border-radius:50%; object-fit:cover; }
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  message: { error: '登录尝试过多，请15分钟后再试' }
+});
+const searchLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 10,
+  message: { error: '搜索太频繁，请稍后再试' }
+});
+const friendRequestLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 5,
+  message: { error: '请求太频繁，请稍后再试' }
+});
 
-    @media (max-width:768px) {
-      .sidebar { display:none; }
-      .bottom-nav { display:flex; }
-      .main-layout { flex-direction:column; }
-      .content-panel { padding-bottom:60px; }
-      .chat-split { flex-direction:column; }
-      .conversation-list { width:100%; border-right:none; }
-      .chat-window { display:none; }
-      .chat-window.mobile-active { display:flex; }
-      .conversation-list.mobile-hidden { display:none; }
-    }
-  </style>
-</head>
-<body>
-<div id="app"></div>
-<script src="/socket.io/socket.io.js"></script>
-<script>
-  (function() {
-    let currentUser = null, socket = null, activeNav = 'messages', selectedChat = null;
-    let friends = [], friendRequests = [], groups = [], notifications = [], messagesCache = {}, unreadCounts = {}, lastMessages = {};
-    let localStream = null, peerConnection = null, remoteAudio = null;
-    let callInfo = null;
-    let isSending = false;
+// ========== 目录与 JSON 双保存配置 ==========
+const DATA_FILE = path.join(__dirname, 'data', 'data.json'); // 问题2 修正路径
 
-    const API_BASE = ''; // 可根据需要修改为后端域名
+// 内存备份（实际数据以 PostgreSQL 为准，JSON 仅作紧急恢复）
+let users = new Map();
+const usernameIndex = new Map();
+const inviteIndex = new Map();
+const fileOwners = new Map();        // 启动时从 uploaded_files 表恢复
+let messages = [];
+let friendRequests = [];
+let groups = [];
+let notifications = [];
+let uidCounter = 1;
+let msgIdCounter = 1;
+let reqIdCounter = 1;
+let groupIdCounter = 1;
 
-    // 统一处理资源URL
-    function getFileUrl(url) {
-      if (!url) return '';
-      if (url.startsWith('http')) return url;
-      return API_BASE + url;
-    }
+function exportData() {
+  return {
+    users: Array.from(users.entries()).map(([id, user]) => ({
+      ...user,
+      friends: [...user.friends],
+      groups: [...user.groups],
+      clearedTimestamps: user.clearedTimestamps || {}
+    })),
+    messages,
+    friendRequests,
+    groups: groups.map(g => ({
+      ...g,
+      members: Array.from(g.members.entries())
+    })),
+    notifications,
+    counters: { uidCounter, msgIdCounter, reqIdCounter, groupIdCounter }
+  };
+}
 
-    // 带重试的API请求
-    async function api(url, options = {}, retry = 3) {
-      try {
-        const res = await fetch(url, {
-          credentials: 'include',
-          headers: { 'Content-Type': 'application/json' },
-          ...options
-        });
-        if (!res.ok) {
-          if (res.status === 401) return { error: '未登录' };
-          if (retry > 0) {
-            await new Promise(r => setTimeout(r, 1000));
-            return api(url, options, retry - 1);
-          }
-          return { error: '服务器错误' };
-        }
-        return await res.json();
-      } catch (e) {
-        if (retry > 0) {
-          await new Promise(r => setTimeout(r, 1000));
-          return api(url, options, retry - 1);
-        }
-        return { error: '网络连接失败' };
+function saveData() {
+  const temp = DATA_FILE + '.tmp';
+  try {
+    const dir = path.dirname(DATA_FILE);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(temp, JSON.stringify(exportData(), null, 2));
+    fs.renameSync(temp, DATA_FILE);
+  } catch (e) {
+    console.error('保存 data.json 失败', e);
+  }
+}
+
+function loadData() {
+  if (!fs.existsSync(DATA_FILE)) return;
+  try {
+    const raw = fs.readFileSync(DATA_FILE);
+    const data = JSON.parse(raw);
+    users = new Map();
+    usernameIndex.clear();
+    inviteIndex.clear();
+    data.users.forEach(u => {
+      const user = { ...u, friends: new Set(u.friends), groups: new Set(u.groups) };
+      user.avatar = user.avatar || '';
+      user.chatBackground = user.chatBackground || '';
+      user.nickname = sanitizeText(user.nickname || '');
+      user.signature = sanitizeText(user.signature || '');
+      user.clearedTimestamps = u.clearedTimestamps || {};
+      users.set(user.id, user);
+      usernameIndex.set(user.username, user);
+      if (user.inviteCode) inviteIndex.set(user.inviteCode, user);
+    });
+    messages = data.messages || [];
+    messages.forEach(m => { if (!m.type) m.type = 'text'; });
+    friendRequests = data.friendRequests || [];
+    groups = (data.groups || []).map(g => ({
+      ...g,
+      members: new Map(g.members || [])
+    }));
+    notifications = data.notifications || [];
+    const counters = data.counters || {};
+    uidCounter = counters.uidCounter || 1;
+    msgIdCounter = counters.msgIdCounter || 1;
+    reqIdCounter = counters.reqIdCounter || 1;
+    groupIdCounter = counters.groupIdCounter || 1;
+    console.log('已从 data.json 加载历史数据（双保存备份）');
+  } catch (e) {
+    console.error('加载 data.json 失败', e);
+  }
+}
+
+loadData();
+setInterval(saveData, 30000);
+
+// ========== PostgreSQL 数据库连接 ==========
+const db = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: { rejectUnauthorized: false }
+});
+
+// ========== Session 持久化到 PostgreSQL ==========
+const sessionMiddleware = session({
+  store: new pgSession({
+    pool: db,
+    tableName: 'session'
+  }),
+  secret: process.env.SESSION_SECRET,
+  resave: false,
+  saveUninitialized: false,
+  cookie: {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+    maxAge: 7 * 24 * 60 * 60 * 1000
+  }
+});
+app.use(sessionMiddleware);
+
+// ========== 文件上传配置 ==========
+const UPLOAD_DIR = path.join(__dirname, 'uploads');
+if (!fs.existsSync(UPLOAD_DIR)) {
+  fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+}
+
+// 问题3：调整文件大小限制
+const ALLOWED_FILE_TYPES = {
+  'jpg': { ext: '.jpg', mime: 'image/jpeg', maxSize: 5 * 1024 * 1024 },
+  'jpeg': { ext: '.jpeg', mime: 'image/jpeg', maxSize: 5 * 1024 * 1024 },
+  'png': { ext: '.png', mime: 'image/png', maxSize: 5 * 1024 * 1024 },
+  'gif': { ext: '.gif', mime: 'image/gif', maxSize: 5 * 1024 * 1024 },
+  'webp': { ext: '.webp', mime: 'image/webp', maxSize: 5 * 1024 * 1024 },
+  'mp3': { ext: '.mp3', mime: 'audio/mpeg', maxSize: 10 * 1024 * 1024 },
+  'wav': { ext: '.wav', mime: 'audio/wav', maxSize: 10 * 1024 * 1024 },
+  'ogg': { ext: '.ogg', mime: 'audio/ogg', maxSize: 10 * 1024 * 1024 },
+  'mp4': { ext: '.mp4', mime: 'video/mp4', maxSize: 15 * 1024 * 1024 },
+  'webm': { ext: '.webm', mime: 'video/webm', maxSize: 15 * 1024 * 1024 },
+  'pdf': { ext: '.pdf', mime: 'application/pdf', maxSize: 20 * 1024 * 1024 },
+  'zip': { ext: '.zip', mime: 'application/zip', maxSize: 20 * 1024 * 1024 },
+  'txt': { ext: '.txt', mime: 'text/plain', maxSize: 5 * 1024 * 1024 }
+};
+
+function getFileTypeInfo(filename) {
+  const ext = path.extname(filename).toLowerCase().substring(1);
+  return ALLOWED_FILE_TYPES[ext] || null;
+}
+
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, UPLOAD_DIR),
+  filename: (req, file, cb) => {
+    const info = getFileTypeInfo(file.originalname);
+    if (!info) return cb(new Error('不支持的文件类型'));
+    const name = crypto.randomBytes(8).toString('hex') + info.ext;
+    cb(null, name);
+  }
+});
+
+const upload = multer({
+  storage,
+  limits: { fileSize: 15 * 1024 * 1024 }, // 15 MB 总限制
+  fileFilter: (req, file, cb) => {
+    const info = getFileTypeInfo(file.originalname);
+    if (!info) return cb(new Error('不支持的文件类型'));
+    cb(null, true);
+  }
+});
+
+// 问题4：扩展魔数校验
+function validateMagicNumber(filePath, expectedType) {
+  const fd = fs.openSync(filePath, 'r');
+  const buffer = Buffer.alloc(12);
+  try {
+    fs.readSync(fd, buffer, 0, 12, 0);
+  } finally {
+    fs.closeSync(fd);
+  }
+  const hex = buffer.toString('hex').toLowerCase();
+  const signatures = {
+    'jpg': 'ffd8',
+    'jpeg': 'ffd8',
+    'png': '89504e470d0a1a0a',
+    'gif': '47494638',
+    'webp': '52494646',
+    'pdf': '255044462d',
+    'zip': '504b0304',
+    'mp3': '494433',   // ID3 tag
+    'mp4': '000000',   // 允许空头，更严格可用 ftyp 但跳过
+    'webm': '1a45df',  // webm 头
+    'wav': '524946',   // RIFF
+    'ogg': '4f6767'    // OggS
+  };
+  const expectedHex = signatures[expectedType];
+  if (!expectedHex) return true; // txt 等不校验
+  return hex.startsWith(expectedHex);
+}
+
+app.use(express.static('public'));
+
+// ========== 在线用户 Map ==========
+const onlineUsers = new Map();
+
+// ========== 数据库初始化建表 ==========
+async function initDB() {
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS users (
+      id SERIAL PRIMARY KEY,
+      username VARCHAR(50) UNIQUE NOT NULL,
+      password VARCHAR(255) NOT NULL,
+      nickname VARCHAR(50) DEFAULT '',
+      avatar VARCHAR(255) DEFAULT '',
+      chat_background VARCHAR(255) DEFAULT '',
+      gender VARCHAR(10) DEFAULT '',
+      region VARCHAR(50) DEFAULT '',
+      signature VARCHAR(200) DEFAULT '',
+      invite_code VARCHAR(20) UNIQUE,
+      invited_by VARCHAR(20),
+      privacy_allow_search BOOLEAN DEFAULT true,
+      cleared_timestamps JSONB DEFAULT '{}',
+      created_at TIMESTAMP DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS friend_requests (
+      id SERIAL PRIMARY KEY,
+      from_user INTEGER REFERENCES users(id) ON DELETE CASCADE,
+      to_user INTEGER REFERENCES users(id) ON DELETE CASCADE,
+      message VARCHAR(200) DEFAULT '',
+      status VARCHAR(20) DEFAULT 'pending',
+      created_at TIMESTAMP DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS friends (
+      user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+      friend_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+      PRIMARY KEY (user_id, friend_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS groups (
+      id SERIAL PRIMARY KEY,
+      name VARCHAR(50) NOT NULL,
+      owner_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+      created_at TIMESTAMP DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS group_members (
+      group_id INTEGER REFERENCES groups(id) ON DELETE CASCADE,
+      user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+      role VARCHAR(20) DEFAULT 'member',
+      joined_at TIMESTAMP DEFAULT NOW(),
+      PRIMARY KEY (group_id, user_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS messages (
+      id SERIAL PRIMARY KEY,
+      from_user INTEGER REFERENCES users(id) ON DELETE CASCADE,
+      to_user INTEGER,
+      group_id INTEGER REFERENCES groups(id) ON DELETE CASCADE,
+      type VARCHAR(20) DEFAULT 'text',
+      content TEXT NOT NULL,
+      file_name VARCHAR(255),
+      duration REAL,
+      created_at TIMESTAMP DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS notifications (
+      id SERIAL PRIMARY KEY,
+      user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+      message TEXT,
+      is_read BOOLEAN DEFAULT false,
+      created_at TIMESTAMP DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS uploaded_files (
+      id SERIAL PRIMARY KEY,
+      filename VARCHAR(255) NOT NULL,
+      owner_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+      upload_time TIMESTAMP DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS invite_codes (
+      id SERIAL PRIMARY KEY,
+      code VARCHAR(50) UNIQUE NOT NULL,
+      creator INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      is_permanent BOOLEAN DEFAULT false,
+      max_uses INTEGER DEFAULT 1,
+      used_count INTEGER DEFAULT 0,
+      created_at TIMESTAMP DEFAULT NOW()
+    );
+  `);
+
+  // 插入超级邀请码 20040705（永久，无限使用次数）
+  await db.query(`
+    INSERT INTO invite_codes (code, creator, is_permanent, max_uses, used_count)
+    VALUES ('20040705', NULL, true, 99999, 0)
+    ON CONFLICT (code) DO NOTHING;
+  `);
+
+  // 问题5：从数据库恢复 fileOwners
+  try {
+    const { rows } = await db.query('SELECT filename, owner_id FROM uploaded_files');
+    rows.forEach(r => fileOwners.set(r.filename, r.owner_id));
+    console.log(`已从数据库恢复 ${rows.length} 个文件所有者记录`);
+  } catch (err) {
+    console.error('恢复文件所有者记录失败', err);
+  }
+}
+
+// ========== 工具函数 ==========
+function sanitizeText(input) {
+  if (typeof input !== 'string') return '';
+  return input.replace(/<[^>]*>/g, '').replace(/[<>"']/g, '').substring(0, 500);
+}
+
+function auth(req, res, next) {
+  if (!req.session.userId) {
+    return res.status(401).json({ error: '未登录' });
+  }
+  req.userId = req.session.userId;
+  next();
+}
+
+// ========== Socket.IO 配置 ==========
+const io = new Server(server, {
+  cors: {
+    origin: ALLOWED_ORIGINS,
+    credentials: true
+  }
+});
+
+io.engine.use(sessionMiddleware);
+
+io.use(async (socket, next) => {
+  const session = socket.request.session;
+  if (session && session.userId) {
+    try {
+      const res = await db.query('SELECT id FROM users WHERE id = $1', [session.userId]);
+      if (res.rows.length > 0) {
+        socket.userId = session.userId;
+        socket.msgTimestamps = [];
+        next();
+      } else {
+        next(new Error('用户不存在'));
       }
+    } catch (err) {
+      next(new Error('数据库错误'));
+    }
+  } else {
+    next(new Error('认证失败'));
+  }
+});
+
+const processedMsgIds = new Set();
+setInterval(() => processedMsgIds.clear(), 5 * 60 * 1000);
+
+io.on('connection', (socket) => {
+  if (socket.userId) {
+    onlineUsers.set(socket.userId, socket.id);
+    socket.join(`user_${socket.userId}`);
+    console.log(`用户 ${socket.userId} 已连接`);
+  }
+
+  socket.on('private message', async (data, ack) => {
+    if (!socket.userId) {
+      if (typeof ack === 'function') ack({ success: false, error: '未登录' });
+      return;
+    }
+    const now = Date.now();
+    socket.msgTimestamps = socket.msgTimestamps.filter(t => now - t < 1000);
+    if (socket.msgTimestamps.length >= 5) {
+      if (typeof ack === 'function') ack({ success: false, error: '发送过快' });
+      return;
+    }
+    socket.msgTimestamps.push(now);
+
+    const { to, toType, type = 'text', content, fileName, duration, clientMsgId } = data;
+    if (!to || !toType || !content?.trim()) {
+      if (typeof ack === 'function') ack({ success: false, error: '数据不完整' });
+      return;
     }
 
-    function incUnread(key) { if(!unreadCounts[key]) unreadCounts[key]=0; unreadCounts[key]++; }
-    function clearUnread(key) { unreadCounts[key]=0; }
-    function escapeHtml(text) { const div = document.createElement('div'); div.textContent = text; return div.innerHTML; }
-
-    // Socket 连接配置
-    function connectSocket(){
-      if(socket) {
-        socket.removeAllListeners();
-        socket.disconnect();
-      }
-      socket = io({
-        withCredentials: true,
-        reconnection: true,
-        reconnectionAttempts: Infinity,
-        reconnectionDelay: 1000,
-        timeout: 10000
-      });
-
-      socket.on('connect', () => {
-        console.log('Socket 已连接');
-        fetchFriends(); fetchFriendRequests(); fetchGroups(); fetchNotifications();
-        if(activeNav === 'messages') renderConversationList();
-      });
-
-      socket.on('disconnect', (reason) => {
-        console.warn('Socket 断开:', reason);
-      });
-
-      socket.on('connect_error', (err) => {
-        console.error('Socket 连接错误:', err.message);
-      });
-
-      socket.on('chat message', (msg) => {
-        const key = msg.toType==='group'?`group_${msg.to}`:`friend_${msg.from===currentUser.id?msg.to:msg.from}`;
-        if(!messagesCache[key]) messagesCache[key]=[];
-        messagesCache[key].push(msg);
-        // 限制缓存数量
-        if(messagesCache[key].length > 500) messagesCache[key].shift();
-
-        lastMessages[key] = (msg.type==='text'?msg.content:(msg.type==='image'?'[图片]':msg.type==='file'?'[文件]':msg.type==='voice'?'[语音]':'[视频]'));
-        const isActive = selectedChat && ((selectedChat.type==='friend' && key===`friend_${selectedChat.id}`) || (selectedChat.type==='group' && key===`group_${selectedChat.id}`));
-        if(!isActive) incUnread(key);
-        else { clearUnread(key); renderChatMessages(); }
-        if(activeNav==='messages'){ renderConversationList(); updateBadge(); }
-      });
-
-      socket.on('new_friend_request', ()=>{ fetchFriendRequests(); updateBadge(); if(activeNav==='contacts') switchView('contacts'); });
-      socket.on('friend_accepted', ()=>{ fetchFriends(); fetchFriendRequests(); updateBadge(); if(activeNav==='contacts') switchView('contacts'); });
-      socket.on('friend_removed', ()=>{ fetchFriends(); updateBadge(); if(activeNav==='contacts') switchView('contacts'); });
-
-      socket.on('message_deleted', ({messageId}) => {
-        if(!selectedChat) return;
-        const key = selectedChat.type==='friend'?`friend_${selectedChat.id}`:`group_${selectedChat.id}`;
-        if(messagesCache[key]) {
-          messagesCache[key] = messagesCache[key].filter(m=>m.id!==messageId);
-          const last = messagesCache[key].at(-1);
-          lastMessages[key] = last ? (last.type==='text'?last.content:'[媒体]') : '';
-        }
-        renderChatMessages();
-        renderConversationList();
-      });
-
-      socket.on('chat_cleared', ({chatType, chatId}) => {
-        const key = chatType==='friend'?`friend_${chatId}`:`group_${chatId}`;
-        messagesCache[key] = [];
-        lastMessages[key] = '';
-        unreadCounts[key] = 0;
-        if(selectedChat && selectedChat.type===chatType && selectedChat.id===chatId){
-          renderChatMessages();
-        }
-        renderConversationList();
-      });
-
-      // WebRTC 信令
-      socket.on('call_offer', async ({from, offer}) => {
-        if(confirm(`用户 ${from} 邀请你进行通话，是否接受？`)){
-          callInfo = { peerId: from, isCaller: false };
-          await startCall(false, offer);
-        } else {
-          socket.emit('call_reject', {to:from});
-        }
-      });
-
-      socket.on('call_answer', ({from, answer}) => {
-        if(peerConnection) peerConnection.setRemoteDescription(new RTCSessionDescription(answer)).catch(console.error);
-      });
-
-      socket.on('call_candidate', ({from, candidate}) => {
-        if(peerConnection) peerConnection.addIceCandidate(new RTCIceCandidate(candidate)).catch(console.error);
-      });
-
-      socket.on('call_rejected', () => {
-        alert('对方拒绝了通话请求');
-        endCall(false);
-      });
-
-      socket.on('call_ended', () => {
-        alert('对方已挂断');
-        endCall(false);
-      });
+    if (clientMsgId && processedMsgIds.has(clientMsgId)) {
+      if (typeof ack === 'function') ack({ success: true, duplicate: true });
+      return;
     }
 
-    // WebRTC 通话
-    async function startCall(isCaller, remoteOffer){
+    if (toType === 'friend') {
       try {
-        localStream = await navigator.mediaDevices.getUserMedia({audio:true, video:false});
-      } catch(e) {
-        alert('无法获取麦克风权限');
-        endCall(false);
+        const friendCheck = await db.query(
+          'SELECT 1 FROM friends WHERE user_id = $1 AND friend_id = $2',
+          [socket.userId, parseInt(to)]
+        );
+        if (friendCheck.rows.length === 0) {
+          if (typeof ack === 'function') ack({ success: false, error: '不是好友' });
+          return;
+        }
+      } catch (err) {
+        if (typeof ack === 'function') ack({ success: false, error: '服务器错误' });
         return;
       }
-      peerConnection = new RTCPeerConnection({
-        iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
-      });
-      localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
 
-      peerConnection.onicecandidate = e => {
-        if(e.candidate && callInfo) {
-          socket.emit('call_candidate', {to: callInfo.peerId, candidate: e.candidate});
-        }
+      const message = {
+        from_user: socket.userId,
+        to_user: parseInt(to),
+        type,
+        content: content.trim(),
+        file_name: fileName || null,
+        duration: duration || null
       };
 
-      peerConnection.ontrack = e => {
-        if(!remoteAudio) {
-          remoteAudio = new Audio();
-          remoteAudio.autoplay = true;
+      try {
+        const result = await db.query(
+          `INSERT INTO messages (from_user, to_user, type, content, file_name, duration)
+           VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
+          [message.from_user, message.to_user, message.type, message.content, message.file_name, message.duration]
+        );
+        const msg = result.rows[0];
+        io.to(`user_${socket.userId}`).emit('chat message', msg);
+        io.to(`user_${to}`).emit('chat message', msg);
+        if (clientMsgId) processedMsgIds.add(clientMsgId);
+        if (typeof ack === 'function') ack({ success: true, msg });
+      } catch (err) {
+        if (typeof ack === 'function') ack({ success: false, error: '消息发送失败' });
+      }
+    } else if (toType === 'group') {
+      try {
+        const groupCheck = await db.query(
+          'SELECT 1 FROM group_members WHERE group_id = $1 AND user_id = $2',
+          [parseInt(to), socket.userId]
+        );
+        if (groupCheck.rows.length === 0) {
+          if (typeof ack === 'function') ack({ success: false, error: '不在群组中' });
+          return;
         }
-        remoteAudio.srcObject = e.streams[0];
-        remoteAudio.play().catch(console.error);
-      };
-
-      const hangupBtn = document.getElementById('hangup-btn');
-      if(hangupBtn) hangupBtn.style.display = 'block';
-
-      if(isCaller){
-        const offer = await peerConnection.createOffer();
-        await peerConnection.setLocalDescription(offer);
-        socket.emit('call_offer', {to: callInfo.peerId, offer});
-      } else if(remoteOffer){
-        await peerConnection.setRemoteDescription(new RTCSessionDescription(remoteOffer));
-        const answer = await peerConnection.createAnswer();
-        await peerConnection.setLocalDescription(answer);
-        socket.emit('call_answer', {to: callInfo.peerId, answer});
-      }
-    }
-
-    function endCall(notify = true){
-      if(notify && callInfo && socket) {
-        socket.emit('call_end', { to: callInfo.peerId });
-      }
-      if(localStream) localStream.getTracks().forEach(t=>t.stop());
-      if(peerConnection) peerConnection.close();
-      if(remoteAudio) {
-        remoteAudio.pause();
-        remoteAudio.srcObject = null;
-        remoteAudio.remove();
-        remoteAudio = null;
-      }
-      localStream = null;
-      peerConnection = null;
-      callInfo = null;
-      const hangupBtn = document.getElementById('hangup-btn');
-      if(hangupBtn) hangupBtn.style.display = 'none';
-    }
-
-    // 数据获取
-    async function fetchFriends(){ const d=await api('/api/friends'); friends=d.friends||[]; }
-    async function fetchFriendRequests(){ const d=await api('/api/friend-requests'); friendRequests=d.requests||[]; }
-    async function fetchGroups(){ const d=await api('/api/groups'); groups=d.groups||[]; }
-    async function fetchNotifications(){ const d=await api('/api/notifications'); notifications=d.notifications||[]; }
-    async function fetchMessages(chatType,chatId){
-      const ep = chatType==='friend'?`/api/messages/friend/${chatId}`:`/api/messages/group/${chatId}`;
-      const d = await api(ep);
-      const key = chatType==='friend'?`friend_${chatId}`:`group_${chatId}`;
-      messagesCache[key] = d.messages||[];
-      if(d.messages&&d.messages.length) lastMessages[key]=(d.messages[d.messages.length-1].type==='text'?d.messages[d.messages.length-1].content:'[媒体]');
-    }
-
-    // 渲染登录/注册界面
-    function renderAuth(mode = 'login') {
-      document.getElementById('app').innerHTML = `
-        <div class="auth-wrapper">
-          <div class="auth-card">
-            <h2>${mode==='login'?'登录':'注册'}小鱼先生</h2>
-            <div class="input-field"><label>账号</label><input id="username" placeholder="字母+数字 4-20位"></div>
-            <div class="input-field"><label>密码</label><input type="password" id="password" placeholder="至少8位，含字母和数字"></div>
-            ${mode==='register'?'<div class="input-field"><label>昵称</label><input id="nickname" placeholder="可选"></div><div class="input-field"><label>邀请码</label><input id="inviteCode" placeholder="必填"></div>':''}
-            <button class="btn" id="auth-btn">${mode==='login'?'登录':'注册'}</button>
-            <div class="error-text" id="auth-error"></div>
-            <div class="text-link" id="toggle-mode">${mode==='login'?'没有账号？去注册':'已有账号？去登录'}</div>
-          </div>
-        </div>
-      `;
-      document.getElementById('toggle-mode').addEventListener('click', ()=>{
-        renderAuth(mode==='login'?'register':'login');
-      });
-      document.getElementById('auth-btn').addEventListener('click', async ()=>{
-        const username = document.getElementById('username').value.trim();
-        const password = document.getElementById('password').value.trim();
-        const errorEl = document.getElementById('auth-error');
-        errorEl.textContent = '';
-
-        if(!username || !password) return errorEl.textContent = '账号密码不能为空';
-
-        if(mode === 'register') {
-          const nickname = document.getElementById('nickname')?.value.trim() || '';
-          const inviteCode = document.getElementById('inviteCode')?.value.trim() || '';
-          const result = await api('/api/register', {method:'POST', body:JSON.stringify({username, password, nickname, inviteCode})});
-          if(result.error) return errorEl.textContent = result.error;
-          currentUser = result.user;
-          connectSocket();
-          renderMain();
-        } else {
-          const result = await api('/api/login', {method:'POST', body:JSON.stringify({username, password})});
-          if(result.error) return errorEl.textContent = result.error;
-          currentUser = result.user;
-          connectSocket();
-          renderMain();
-        }
-      });
-    }
-
-    // 渲染主界面
-    async function renderMain(){
-      document.getElementById('app').innerHTML = `
-        <div class="main-layout" id="main-layout">
-          <div class="sidebar" id="sidebar"><div style="padding:8px 14px;font-weight:600;font-size:18px;margin-bottom:16px;">🐟 小鱼先生</div><div id="nav-items"></div></div>
-          <div class="content-panel" id="content-panel"><div class="top-bar" id="top-bar"></div><div id="view-container" style="flex:1;overflow:hidden;min-height:0;height:100%;"></div></div>
-        </div>
-        <div class="bottom-nav" id="bottom-nav"></div>
-      `;
-      await fetchFriends(); await fetchFriendRequests(); await fetchGroups(); await fetchNotifications();
-      renderSidebar(); renderBottomNav(); renderTopBar(); switchView(activeNav);
-    }
-
-    function renderSidebar(){
-      const nav = document.getElementById('nav-items');
-      if(!nav) return;
-      const pending = friendRequests.filter(r=>r.status==='pending'&&r.to===currentUser.id).length;
-      const totalUnread = Object.values(unreadCounts).reduce((a,b)=>a+b,0);
-      nav.innerHTML = `
-        <div class="nav-item ${activeNav==='messages'?'active':''}" data-nav="messages">💬 消息 ${totalUnread?`<span class="badge">${totalUnread}</span>`:''}</div>
-        <div class="nav-item ${activeNav==='contacts'?'active':''}" data-nav="contacts">👥 通讯录 ${pending?`<span class="badge">${pending}</span>`:''}</div>
-        <div class="nav-item ${activeNav==='profile'?'active':''}" data-nav="profile">👤 个人主页</div>
-      `;
-      nav.querySelectorAll('.nav-item[data-nav]').forEach(item=> item.addEventListener('click', e=>{
-        activeNav=e.currentTarget.dataset.nav;
-        selectedChat=null;
-        renderSidebar(); renderBottomNav(); renderTopBar(); switchView(activeNav);
-      }));
-    }
-
-    function renderBottomNav(){
-      const bottom = document.getElementById('bottom-nav');
-      if(!bottom) return;
-      const pending = friendRequests.filter(r=>r.status==='pending'&&r.to===currentUser.id).length;
-      const totalUnread = Object.values(unreadCounts).reduce((a,b)=>a+b,0);
-      bottom.innerHTML = `
-        <div class="nav-item-mobile ${activeNav==='messages'?'active':''}" data-nav="messages"><span>💬</span><span>消息</span>${totalUnread?`<span class="badge-mobile">${totalUnread}</span>`:''}</div>
-        <div class="nav-item-mobile ${activeNav==='contacts'?'active':''}" data-nav="contacts"><span>👥</span><span>通讯录</span>${pending?`<span class="badge-mobile">${pending}</span>`:''}</div>
-        <div class="nav-item-mobile ${activeNav==='profile'?'active':''}" data-nav="profile"><span>👤</span><span>我的</span></div>
-      `;
-      bottom.querySelectorAll('.nav-item-mobile[data-nav]').forEach(item=> item.addEventListener('click', e=>{
-        activeNav=e.currentTarget.dataset.nav;
-        selectedChat=null;
-        renderSidebar(); renderBottomNav(); renderTopBar(); switchView(activeNav);
-      }));
-    }
-
-    function renderTopBar(){
-      const topBar = document.getElementById('top-bar');
-      if(!topBar) return;
-      topBar.innerHTML = `
-        <input class="search-box" placeholder="🔍 搜索..." id="global-search">
-        <button class="icon-btn" id="add-friend-btn">➕</button>
-        <button class="icon-btn" id="invite-add-btn">🎟️</button>
-        <button class="icon-btn" id="profile-btn" title="个人主页">👤</button>
-        <span style="margin-left:auto;font-weight:500;">${escapeHtml(currentUser.nickname||currentUser.username)}</span>
-      `;
-      document.getElementById('global-search').addEventListener('keypress', e=>{ if(e.key==='Enter') globalSearch(e.target.value); });
-      document.getElementById('add-friend-btn').addEventListener('click', ()=>{ const name=prompt('输入对方账号:'); if(name) api('/api/friend-request',{method:'POST',body:JSON.stringify({toUsername:name})}).then(d=>alert(d.message||'已发送')); });
-      document.getElementById('invite-add-btn').addEventListener('click', ()=>{ const code=prompt('输入对方邀请码:'); if(code) api('/api/add-by-invite',{method:'POST',body:JSON.stringify({inviteCode:code})}).then(d=>alert(d.message||d.error)); });
-      document.getElementById('profile-btn').addEventListener('click', ()=>{
-        activeNav = 'profile';
-        selectedChat = null;
-        renderSidebar(); renderBottomNav(); renderTopBar(); switchView('profile');
-      });
-    }
-
-    async function globalSearch(q){
-      const d = await api(`/api/search?q=${encodeURIComponent(q)}`);
-      if(d.error) return alert(d.error);
-      if(d.users?.length){
-        const user = d.users[0];
-        if(confirm(`找到用户: ${user.nickname||user.username}，添加好友？`)){
-          await api('/api/friend-request',{method:'POST',body:JSON.stringify({to:user.id})});
-          alert('已发送');
-        }
-      } else alert('未找到');
-    }
-
-    async function switchView(nav){
-      const container = document.getElementById('view-container');
-      if(!container) return;
-      container.innerHTML='';
-      const convList = document.getElementById('conversation-list');
-      const chatWin = document.getElementById('chat-window');
-      if(convList) convList.classList.remove('mobile-hidden');
-      if(chatWin) chatWin.classList.remove('mobile-active');
-
-      if(nav==='messages'){
-        container.innerHTML = `<div class="chat-split"><div class="conversation-list" id="conversation-list"></div><div class="chat-window" id="chat-window"><div id="chat-placeholder" style="flex:1;display:flex;align-items:center;justify-content:center;color:#9ca3af;">选择一个会话开始聊天</div></div></div>`;
-        renderConversationList();
-        if(selectedChat) openChatFromConversation(selectedChat.type,selectedChat.id);
-      } else if(nav==='contacts'){
-        await fetchFriendRequests(); await fetchFriends();
-        renderContactsView(container);
-      } else if(nav==='profile'){
-        renderProfileView(container);
-      }
-    }
-
-    function renderContactsView(container){
-      container.innerHTML = '<div class="view-container"><div id="contacts-content"></div></div>';
-      const content = document.getElementById('contacts-content');
-      content.innerHTML = `
-        <div class="section-title">🔔 新的朋友</div><div id="req-list"></div>
-        <div class="section-title" style="margin-top:16px;">👤 我的好友</div><div id="friend-list"></div>
-        <div class="section-title" style="margin-top:16px;">👥 我的群组</div><div id="group-list"></div>
-      `;
-      const reqList = document.getElementById('req-list');
-      const pendingReqs = friendRequests.filter(r=>r.to===currentUser.id&&r.status==='pending');
-      if(!pendingReqs.length) reqList.innerHTML='<div style="padding:12px;color:var(--text-secondary);">暂无新的朋友请求</div>';
-      else pendingReqs.forEach(req=>{
-        const div = document.createElement('div'); div.className='list-item';
-        div.innerHTML = `<span>${escapeHtml(req.fromUsername)} 请求添加好友</span>
-          <button class="btn btn-small" data-accept="${req.id}">同意</button>
-          <button class="btn btn-outline btn-small" data-reject="${req.id}">拒绝</button>`;
-        reqList.appendChild(div);
-      });
-      document.querySelectorAll('[data-accept]').forEach(btn=> btn.addEventListener('click', async(e)=>{
-        await api(`/api/friend-request/${e.target.dataset.accept}/accept`,{method:'POST'});
-        await fetchFriendRequests(); await fetchFriends();
-        renderContactsView(document.getElementById('view-container'));
-      }));
-      document.querySelectorAll('[data-reject]').forEach(btn=> btn.addEventListener('click', async(e)=>{
-        await api(`/api/friend-request/${e.target.dataset.reject}/reject`,{method:'POST'});
-        await fetchFriendRequests();
-        renderContactsView(document.getElementById('view-container'));
-      }));
-      const friendList = document.getElementById('friend-list');
-      if(!friends.length) friendList.innerHTML='<div style="padding:12px;color:var(--text-secondary);">暂无好友</div>';
-      else friends.forEach(f=>{
-        const div = document.createElement('div'); div.className='list-item';
-        div.innerHTML = `<span><img src="${getFileUrl(f.avatar) || '/default-avatar.png'}" class="avatar-sm" onerror="this.src='/default-avatar.png'"> ${escapeHtml(f.nickname||f.username)} (${escapeHtml(f.username)})</span>
-          <button class="btn btn-outline btn-small" data-delete="${f.id}">删除</button>`;
-        div.querySelector('span').addEventListener('click',()=>{ selectedChat={type:'friend',id:f.id}; activeNav='messages'; renderMain(); });
-        div.querySelector('button').addEventListener('click', async(e)=>{
-          e.stopPropagation();
-          if(confirm('确定删除好友？')){
-            await api('/api/friend-remove',{method:'POST',body:JSON.stringify({friendId:f.id})});
-            await fetchFriends();
-            renderContactsView(document.getElementById('view-container'));
-          }
-        });
-        friendList.appendChild(div);
-      });
-      const groupList = document.getElementById('group-list');
-      if(!groups.length) groupList.innerHTML='<div style="padding:12px;color:var(--text-secondary);">暂无群组</div>';
-      else groups.forEach(g=>{
-        const div = document.createElement('div'); div.className='list-item';
-        div.innerHTML = `<span>${escapeHtml(g.name)}</span>`;
-        div.addEventListener('click',()=>{ selectedChat={type:'group',id:g.id}; activeNav='messages'; renderMain(); });
-        groupList.appendChild(div);
-      });
-    }
-
-    function renderProfileView(container){
-      container.innerHTML = '<div class="view-container" id="profile-container"></div>';
-      const pc = document.getElementById('profile-container');
-      const userBackground = currentUser.background || currentUser.chatBackground || '';
-      const userBio = currentUser.bio || currentUser.signature || '';
-      const userCreatedAt = currentUser.createdAt || '未知';
-      pc.innerHTML = `
-        <div class="card">
-          <div style="display:flex;align-items:center;gap:16px;">
-            <img src="${getFileUrl(currentUser.avatar) || '/default-avatar.png'}" style="width:60px;height:60px;border-radius:50%;object-fit:cover;" id="profile-avatar-preview">
-            <div>
-              <h3>🐟 ${escapeHtml(currentUser.nickname||currentUser.username)}</h3>
-              <p>UID: ${currentUser.id}</p>
-            </div>
-          </div>
-          <input type="file" accept="image/*" id="avatar-upload" style="margin-top:12px;">
-          <p>性别: ${escapeHtml(currentUser.gender||'未设置')}</p>
-          <p>地区: ${escapeHtml(currentUser.region||'未知')}</p>
-          <p>签名/简介: ${escapeHtml(userBio)}</p>
-          <p>邀请码: <strong>${escapeHtml(currentUser.inviteCode)}</strong></p>
-          <p>注册时间: ${escapeHtml(userCreatedAt)}</p>
-          <button class="btn" id="edit-profile-btn">编辑资料</button>
-        </div>
-        <div class="card">
-          <h4>🎨 聊天背景</h4>
-          <input type="file" accept="image/*" id="background-upload">
-          ${userBackground ? `<img src="${getFileUrl(userBackground)}" style="max-width:200px;margin-top:8px;">` : ''}
-        </div>
-        <div class="card"><h4>🔔 通知中心</h4><div id="notif-list">${notifications.length?notifications.map(n=>`<div class="list-item">${escapeHtml(n.message)}</div>`).join(''):'<div>暂无通知</div>'}</div></div>
-        <button class="btn btn-outline" id="change-pwd-btn">修改密码</button>
-        <button class="btn btn-outline" id="logout-btn" style="margin-top:8px;color:var(--danger);border-color:var(--danger);">退出登录</button>
-      `;
-      document.getElementById('avatar-upload').addEventListener('change', async e=>{
-        const file = e.target.files[0];
-        if(!file) return;
-        const fd = new FormData(); fd.append('avatar', file);
-        const res = await fetch('/api/avatar/upload',{method:'POST',body:fd,credentials:'include'});
-        const data = await res.json();
-        if(data.avatar){ currentUser.avatar = data.avatar; document.getElementById('profile-avatar-preview').src = data.avatar; }
-        else alert(data.error);
-      });
-      document.getElementById('background-upload').addEventListener('change', async e=>{
-        const file = e.target.files[0];
-        if(!file) return;
-        const fd = new FormData(); fd.append('background', file);
-        const res = await fetch('/api/background/upload',{method:'POST',body:fd,credentials:'include'});
-        const data = await res.json();
-        if(data.chatBackground || data.url){ currentUser.chatBackground = data.chatBackground || data.url; currentUser.background = data.chatBackground || data.url; renderMain(); }
-        else alert(data.error);
-      });
-      document.getElementById('edit-profile-btn').onclick = async ()=>{
-        const n=prompt('昵称',currentUser.nickname), g=prompt('性别',currentUser.gender), r=prompt('地区',currentUser.region), s=prompt('签名',currentUser.signature || currentUser.bio);
-        await api('/api/profile',{method:'POST',body:JSON.stringify({nickname:n,gender:g,region:r,signature:s})});
-        const me = await api('/api/me'); currentUser = me.user; renderMain();
-      };
-      document.getElementById('change-pwd-btn').onclick = ()=> {
-        const old=prompt('旧密码'), newPwd=prompt('新密码');
-        if(old&&newPwd) api('/api/change-password',{method:'POST',body:JSON.stringify({oldPassword:old,newPassword:newPwd})}).then(d=>alert(d.success?'成功':d.error));
-      };
-      document.getElementById('logout-btn').onclick = async ()=>{ await api('/api/logout',{method:'POST'}); socket.disconnect(); currentUser=null; renderAuth('login'); };
-    }
-
-    function renderConversationList(){
-      const list = document.getElementById('conversation-list');
-      if(!list) return;
-      const items = [];
-      friends.forEach(f=>{ const key=`friend_${f.id}`; items.push({type:'friend',id:f.id,name:f.nickname||f.username,avatar:f.avatar,key,unread:unreadCounts[key]||0,last:lastMessages[key]||''}); });
-      groups.forEach(g=>{ const key=`group_${g.id}`; items.push({type:'group',id:g.id,name:g.name,avatar:'',key,unread:unreadCounts[key]||0,last:lastMessages[key]||''}); });
-      list.innerHTML = items.map(i=>`<div class="conversation-item ${selectedChat&&selectedChat.type===i.type&&selectedChat.id===i.id?'active':''}" data-type="${i.type}" data-id="${i.id}"><img src="${getFileUrl(i.avatar) || '/default-avatar.png'}" class="avatar-sm" onerror="this.src='/default-avatar.png'"><div class="conversation-info"><div class="conversation-name">${escapeHtml(i.name)}</div><div class="conversation-lastmsg">${escapeHtml(i.last||'暂无消息')}</div></div>${i.unread?`<span class="unread-count">${i.unread}</span>`:''}</div>`).join('');
-      list.querySelectorAll('.conversation-item').forEach(el=>el.addEventListener('click',()=>{ openChatFromConversation(el.dataset.type,parseInt(el.dataset.id)); }));
-    }
-
-    async function openChatFromConversation(type,id){
-      selectedChat = {type,id};
-      const key = type==='friend'?`friend_${id}`:`group_${id}`;
-      clearUnread(key);
-      await fetchMessages(type,id);
-      const title = type==='friend'?(friends.find(f=>f.id===id)?.nickname||'好友'):(groups.find(g=>g.id===id)?.name||'群聊');
-      const chatWin = document.getElementById('chat-window');
-      chatWin.innerHTML = `
-        <div style="padding:10px 16px;background:#f8fafc;font-weight:600;flex-shrink:0;display:flex;align-items:center;gap:8px;">
-          ${window.innerWidth<=768?'<button class="icon-btn" id="back-btn">←</button>':''}
-          <span>${escapeHtml(title)}</span>
-          <button class="icon-btn" id="call-voice-btn" title="语音通话">📞</button>
-          <button class="icon-btn" id="call-video-btn" title="视频通话">📹</button>
-          <button class="icon-btn" id="hangup-btn" title="挂断" style="display:none;">❌挂断</button>
-          <button class="icon-btn" id="clear-chat-btn" title="清空聊天">🗑️</button>
-        </div>
-        <div class="chat-messages-container" id="chat-messages-container" style="${currentUser.chatBackground ? `background-image:url('${getFileUrl(currentUser.chatBackground)}');background-size:cover;` : ''}">
-          <ul class="chat-messages" id="chat-msgs"></ul>
-        </div>
-        <div class="msg-input-area">
-          <button class="emoji-btn" id="emoji-btn" title="表情">😀</button>
-          <button class="voice-btn" id="voice-record-btn" title="语音消息">🎤</button>
-          <input id="msg-input" placeholder="输入消息...">
-          <input type="file" id="file-input" style="display:none" multiple>
-          <button class="attach-btn" id="attach-btn" title="发送文件">📎</button>
-          <button class="btn" style="width:auto;" id="send-msg-btn">发送</button>
-        </div>
-      `;
-      renderChatMessages();
-      document.getElementById('send-msg-btn').addEventListener('click', sendMessage);
-      document.getElementById('msg-input').addEventListener('keydown', e=>{ if(e.key==='Enter') sendMessage(); });
-      document.getElementById('back-btn')?.addEventListener('click', ()=>{
-        selectedChat=null;
-        document.getElementById('conversation-list')?.classList.remove('mobile-hidden');
-        document.getElementById('chat-window')?.classList.remove('mobile-active');
-        switchView('messages');
-      });
-      document.getElementById('attach-btn').addEventListener('click', ()=> document.getElementById('file-input').click());
-      document.getElementById('file-input').addEventListener('change', handleFileUpload);
-      // 表情按钮、语音按钮暂不绑定功能
-      document.getElementById('emoji-btn').addEventListener('click', ()=>{
-        // 预留表情功能
-      });
-      document.getElementById('voice-record-btn').addEventListener('click', ()=>{
-        // 预留语音消息功能
-      });
-      document.getElementById('call-voice-btn').addEventListener('click', ()=>{
-        if(!selectedChat || selectedChat.type!=='friend') return alert('仅支持好友语音通话');
-        callInfo = { peerId: selectedChat.id, isCaller: true };
-        startCall(true);
-      });
-      document.getElementById('call-video-btn').addEventListener('click', ()=>{
-        // 预留视频通话功能
-        alert('视频通话功能即将上线');
-      });
-      document.getElementById('hangup-btn').addEventListener('click', ()=>{
-        endCall(true);
-      });
-      document.getElementById('clear-chat-btn').addEventListener('click', async ()=>{
-        if(confirm('确定清空所有聊天记录？')){
-          await api('/api/chat/clear',{method:'POST',body:JSON.stringify({chatType:selectedChat.type,chatId:selectedChat.id})});
-        }
-      });
-      if(callInfo) {
-        document.getElementById('hangup-btn').style.display = 'block';
-      }
-      if(window.innerWidth<=768){
-        chatWin.classList.add('mobile-active');
-        document.getElementById('conversation-list')?.classList.add('mobile-hidden');
-      }
-      renderConversationList();
-      updateBadge();
-    }
-
-    function renderChatMessages(){
-      if(!selectedChat) return;
-      const key = selectedChat.type==='friend'?`friend_${selectedChat.id}`:`group_${selectedChat.id}`;
-      const msgs = messagesCache[key]||[];
-      const ul = document.getElementById('chat-msgs');
-      const container = document.getElementById('chat-messages-container');
-      if(!ul || !container) return;
-
-      const wasNearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 150;
-
-      ul.innerHTML = '';
-      msgs.forEach(m=>{
-        const li = document.createElement('li');
-        li.className = `msg-item ${m.from===currentUser.id?'self':''}`;
-        if(m.type==='text'){
-          li.textContent = m.content;
-        } else if(m.type==='image'){
-          const img = document.createElement('img');
-          img.src = getFileUrl(m.content);
-          img.loading = 'lazy';
-          li.appendChild(img);
-        } else if(m.type==='file'){
-          const a = document.createElement('a');
-          a.className = 'file-link';
-          a.href = getFileUrl(m.content);
-          a.download = m.fileName || 'file';
-          a.target = '_blank';
-          a.textContent = `📄 ${m.fileName||'文件'}`;
-          li.appendChild(a);
-        } else if(m.type==='voice'){
-          // 预留语音消息渲染，暂不实现
-        } else if(m.type==='video'){
-          const video = document.createElement('video');
-          video.controls = true;
-          video.src = getFileUrl(m.content);
-          video.style.maxWidth = '100%';
-          li.appendChild(video);
-        } else if(m.type==='emoji'){
-          // 预留表情消息渲染，暂不实现
-        }
-        const delBtn = document.createElement('button');
-        delBtn.className = 'msg-delete-btn';
-        delBtn.textContent = '×';
-        delBtn.addEventListener('click', async (e)=>{
-          e.stopPropagation();
-          await api('/api/message/delete',{method:'POST',body:JSON.stringify({messageId:m.id})});
-        });
-        li.appendChild(delBtn);
-        ul.appendChild(li);
-      });
-
-      if(wasNearBottom){
-        requestAnimationFrame(()=>{
-          container.scrollTop = container.scrollHeight;
-        });
-      }
-    }
-
-    function sendMessage(){
-      if(isSending) return;
-      // 检查 socket 连接状态
-      if (!socket || !socket.connected) {
-        isSending = false;
-        alert('连接已断开，无法发送');
+      } catch (err) {
+        if (typeof ack === 'function') ack({ success: false, error: '服务器错误' });
         return;
       }
-      const input = document.getElementById('msg-input');
-      if(!input||!input.value.trim()) return;
 
-      isSending = true;
-      const content = input.value.trim();
-      input.value = '';
+      try {
+        const result = await db.query(
+          `INSERT INTO messages (from_user, group_id, type, content, file_name, duration)
+           VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
+          [socket.userId, parseInt(to), type, content.trim(), fileName || null, duration || null]
+        );
+        const msg = result.rows[0];
+        const members = await db.query('SELECT user_id FROM group_members WHERE group_id = $1', [parseInt(to)]);
+        members.rows.forEach(m => {
+          io.to(`user_${m.user_id}`).emit('chat message', msg);
+        });
+        if (clientMsgId) processedMsgIds.add(clientMsgId);
+        if (typeof ack === 'function') ack({ success: true, msg });
+      } catch (err) {
+        if (typeof ack === 'function') ack({ success: false, error: '消息发送失败' });
+      }
+    } else {
+      if (typeof ack === 'function') ack({ success: false, error: '未知类型' });
+    }
+  });
 
-      const clientMsgId = Date.now() + '_' + Math.random().toString(36).substr(2, 9);
-      let timeoutId;
-      let ackReceived = false;
+  // WebRTC 信令
+  socket.on('call_offer', (data) => {
+    const { to, offer } = data;
+    if (!to || !offer) return;
+    io.to(`user_${to}`).emit('call_offer', { from: socket.userId, offer });
+  });
+  socket.on('call_answer', (data) => {
+    const { to, answer } = data;
+    if (!to || !answer) return;
+    io.to(`user_${to}`).emit('call_answer', { from: socket.userId, answer });
+  });
+  socket.on('call_candidate', (data) => {
+    const { to, candidate } = data;
+    if (!to || !candidate) return;
+    io.to(`user_${to}`).emit('call_candidate', { from: socket.userId, candidate });
+  });
+  socket.on('call_reject', (data) => {
+    const { to } = data;
+    if (!to) return;
+    io.to(`user_${to}`).emit('call_rejected', { from: socket.userId });
+  });
+  socket.on('call_end', (data) => {
+    const { to } = data;
+    if (!to) return;
+    io.to(`user_${to}`).emit('call_ended', { from: socket.userId });
+  });
 
-      socket.emit('private message', {
-        clientMsgId,
-        to: selectedChat.id,
-        toType: selectedChat.type,
-        type: 'text',
-        content: content
-      }, (ack) => {
-        ackReceived = true;
-        clearTimeout(timeoutId);
-        isSending = false;
-        if(ack && ack.success) {
-        } else if(ack && ack.error) {
-          alert(ack.error);
-          input.value = content;
-        } else {
-          alert('发送失败');
-          input.value = content;
-        }
+  socket.on('disconnect', () => {
+    if (socket.userId) {
+      onlineUsers.delete(socket.userId);
+      console.log(`用户 ${socket.userId} 断开连接`);
+    }
+  });
+});
+
+// ========== API 路由 ==========
+
+// 健康检查
+app.get('/', (req, res) => {
+  res.json({ success: true, service: 'qiaoqiaohua-backend', status: 'running' });
+});
+
+// 注册
+app.post('/api/register', async (req, res) => {
+  const { username, password, nickname, inviteCode } = req.body;
+  const trimmedPassword = password ? password.trim() : '';
+  if (!username || !trimmedPassword) return res.json({ error: '信息不完整' });
+  if (trimmedPassword.length < 8 || !/^(?=.*[a-zA-Z])(?=.*\d)/.test(trimmedPassword)) {
+    return res.json({ error: '密码至少8位，且包含字母和数字' });
+  }
+  if (!/^(?=.*[a-zA-Z])(?=.*\d)[a-zA-Z\d]{4,20}$/.test(username)) {
+    return res.json({ error: '账号必须包含字母和数字，长度4-20位' });
+  }
+
+  try {
+    const existing = await db.query('SELECT id FROM users WHERE username = $1', [username]);
+    if (existing.rows.length > 0) {
+      return res.json({ error: '账号已存在' });
+    }
+
+    const userCount = await db.query('SELECT COUNT(*) FROM users');
+    if (parseInt(userCount.rows[0].count) > 0) {
+      if (!inviteCode) return res.json({ error: '需要邀请码' });
+      const codeCheck = await db.query('SELECT * FROM invite_codes WHERE code = $1', [inviteCode]);
+      if (codeCheck.rows.length === 0) {
+        return res.json({ error: '邀请码无效' });
+      }
+      const codeRow = codeCheck.rows[0];
+      if (!codeRow.is_permanent && codeRow.used_count >= codeRow.max_uses) {
+        return res.json({ error: '邀请码已用完' });
+      }
+      await db.query('UPDATE invite_codes SET used_count = used_count + 1 WHERE id = $1', [codeRow.id]);
+    }
+
+    const hashedPassword = await bcrypt.hash(trimmedPassword, 12);
+    let finalNickname = sanitizeText((nickname || username).substring(0, 30));
+    // 问题6：邀请码碰撞检测
+    let newInviteCode;
+    while (true) {
+      newInviteCode = crypto.randomBytes(3).toString('hex').toUpperCase();
+      const conflict = await db.query('SELECT 1 FROM users WHERE invite_code = $1', [newInviteCode]);
+      if (conflict.rows.length === 0) break;
+    }
+
+    const result = await db.query(
+      `INSERT INTO users (username, password, nickname, invite_code, invited_by)
+       VALUES ($1, $2, $3, $4, $5) RETURNING id, username, nickname, avatar, invite_code`,
+      [username, hashedPassword, finalNickname, newInviteCode, inviteCode || null]
+    );
+    const user = result.rows[0];
+    req.session.userId = user.id;
+    res.json({ user: { id: user.id, username: user.username, nickname: user.nickname, avatar: user.avatar, inviteCode: user.invite_code } });
+  } catch (err) {
+    console.error(err);
+    res.json({ error: '注册失败' });
+  }
+});
+
+// 登录
+app.post('/api/login', loginLimiter, async (req, res) => {
+  const { username, password } = req.body;
+  try {
+    const result = await db.query('SELECT * FROM users WHERE username = $1', [username]);
+    if (result.rows.length === 0) return res.json({ error: '账号或密码错误' });
+    const user = result.rows[0];
+    const valid = await bcrypt.compare(password || '', user.password);
+    if (!valid) return res.json({ error: '账号或密码错误' });
+    req.session.userId = user.id;
+    res.json({ user: { id: user.id, username: user.username, nickname: user.nickname, avatar: user.avatar, inviteCode: user.invite_code } });
+  } catch (err) {
+    console.error(err);
+    res.json({ error: '服务器错误' });
+  }
+});
+
+// 获取当前用户
+app.get('/api/me', auth, async (req, res) => {
+  try {
+    const result = await db.query(
+      'SELECT id, username, nickname, avatar, chat_background, gender, region, signature, invite_code FROM users WHERE id = $1',
+      [req.userId]
+    );
+    if (result.rows.length === 0) return res.json({ user: null });
+    const u = result.rows[0];
+    res.json({
+      user: {
+        id: u.id, username: u.username, nickname: u.nickname, avatar: u.avatar,
+        chatBackground: u.chat_background, gender: u.gender, region: u.region,
+        signature: u.signature, inviteCode: u.invite_code
+      }
+    });
+  } catch (err) {
+    console.error(err);
+    res.json({ error: '服务器错误' });
+  }
+});
+
+// 退出登录
+app.post('/api/logout', (req, res) => {
+  req.session.destroy();
+  res.json({ success: true });
+});
+
+// 搜索用户
+app.get('/api/search', auth, searchLimiter, async (req, res) => {
+  const q = req.query.q?.toLowerCase() || '';
+  try {
+    const result = await db.query(
+      `SELECT id, username, nickname, avatar FROM users
+       WHERE id != $1 AND privacy_allow_search = true
+       AND (LOWER(username) LIKE $2 OR LOWER(nickname) LIKE $2)
+       LIMIT 5`,
+      [req.userId, `%${q}%`]
+    );
+    res.json({ users: result.rows });
+  } catch (err) {
+    console.error(err);
+    res.json({ error: '搜索失败' });
+  }
+});
+
+// 好友列表
+app.get('/api/friends', auth, async (req, res) => {
+  try {
+    const result = await db.query(
+      `SELECT u.id, u.username, u.nickname, u.avatar FROM users u
+       JOIN friends f ON u.id = f.friend_id
+       WHERE f.user_id = $1`,
+      [req.userId]
+    );
+    res.json({ friends: result.rows });
+  } catch (err) {
+    console.error(err);
+    res.json({ error: '获取好友列表失败' });
+  }
+});
+
+// 好友请求
+app.post('/api/friend-request', auth, friendRequestLimiter, async (req, res) => {
+  const { to, toUsername, message } = req.body;
+  try {
+    let target;
+    if (to) {
+      target = await db.query('SELECT id FROM users WHERE id = $1', [parseInt(to)]);
+    } else {
+      target = await db.query('SELECT id FROM users WHERE username = $1', [toUsername]);
+    }
+    if (target.rows.length === 0) return res.json({ error: '用户不存在' });
+    const targetId = target.rows[0].id;
+
+    const friendCheck = await db.query(
+      'SELECT 1 FROM friends WHERE user_id = $1 AND friend_id = $2',
+      [req.userId, targetId]
+    );
+    if (friendCheck.rows.length > 0) return res.json({ error: '已经是好友' });
+
+    const pendingCheck = await db.query(
+      'SELECT id FROM friend_requests WHERE from_user = $1 AND to_user = $2 AND status = $3',
+      [req.userId, targetId, 'pending']
+    );
+    if (pendingCheck.rows.length > 0) return res.json({ error: '已发送过申请' });
+
+    const pendingCount = await db.query(
+      'SELECT COUNT(*) FROM friend_requests WHERE from_user = $1 AND status = $2',
+      [req.userId, 'pending']
+    );
+    if (parseInt(pendingCount.rows[0].count) >= 100) {
+      return res.json({ error: '待处理申请过多，请稍后再试' });
+    }
+
+    await db.query(
+      `INSERT INTO friend_requests (from_user, to_user, message)
+       VALUES ($1, $2, $3)`,
+      [req.userId, targetId, message ? sanitizeText(message) : '请求添加好友']
+    );
+
+    const targetSid = onlineUsers.get(targetId);
+    if (targetSid) io.to(targetSid).emit('new_friend_request');
+
+    res.json({ message: '申请已发送' });
+  } catch (err) {
+    console.error(err);
+    res.json({ error: '服务器错误' });
+  }
+});
+
+// 通过邀请码添加
+app.post('/api/add-by-invite', auth, async (req, res) => {
+  const { inviteCode } = req.body;
+  try {
+    const targetRes = await db.query('SELECT id FROM users WHERE invite_code = $1', [inviteCode]);
+    if (targetRes.rows.length === 0) return res.json({ error: '无效的邀请码' });
+    const targetId = targetRes.rows[0].id;
+
+    const friendCheck = await db.query(
+      'SELECT 1 FROM friends WHERE user_id = $1 AND friend_id = $2',
+      [req.userId, targetId]
+    );
+    if (friendCheck.rows.length > 0) return res.json({ error: '已经是好友' });
+
+    const pendingCheck = await db.query(
+      'SELECT id FROM friend_requests WHERE from_user = $1 AND to_user = $2 AND status = $3',
+      [req.userId, targetId, 'pending']
+    );
+    if (pendingCheck.rows.length > 0) return res.json({ error: '已发送过申请' });
+
+    const pendingCount = await db.query(
+      'SELECT COUNT(*) FROM friend_requests WHERE from_user = $1 AND status = $2',
+      [req.userId, 'pending']
+    );
+    if (parseInt(pendingCount.rows[0].count) >= 100) {
+      return res.json({ error: '待处理申请过多，请稍后再试' });
+    }
+
+    const fromUser = await db.query('SELECT nickname, username FROM users WHERE id = $1', [req.userId]);
+    const displayName = fromUser.rows[0].nickname || fromUser.rows[0].username;
+
+    await db.query(
+      `INSERT INTO friend_requests (from_user, to_user, message) VALUES ($1, $2, $3)`,
+      [req.userId, targetId, `${displayName} 通过你的邀请码请求添加好友`]
+    );
+    await db.query(
+      `INSERT INTO notifications (user_id, message) VALUES ($1, $2)`,
+      [targetId, `用户 ${displayName} 通过邀请码添加了你`]
+    );
+
+    const targetSid = onlineUsers.get(targetId);
+    if (targetSid) io.to(targetSid).emit('new_friend_request');
+    res.json({ message: '好友申请已发送' });
+  } catch (err) {
+    console.error(err);
+    res.json({ error: '服务器错误' });
+  }
+});
+
+// 获取好友请求列表
+app.get('/api/friend-requests', auth, async (req, res) => {
+  try {
+    const result = await db.query(
+      `SELECT fr.*, u1.username as from_username, u2.username as to_username
+       FROM friend_requests fr
+       JOIN users u1 ON fr.from_user = u1.id
+       JOIN users u2 ON fr.to_user = u2.id
+       WHERE fr.to_user = $1 OR fr.from_user = $1
+       ORDER BY fr.created_at DESC`,
+      [req.userId]
+    );
+    res.json({ requests: result.rows });
+  } catch (err) {
+    console.error(err);
+    res.json({ error: '服务器错误' });
+  }
+});
+
+// 接受好友请求
+app.post('/api/friend-request/:id/accept', auth, async (req, res) => {
+  try {
+    const reqObj = await db.query(
+      'UPDATE friend_requests SET status = $1 WHERE id = $2 AND to_user = $3 AND status = $4 RETURNING *',
+      ['accepted', req.params.id, req.userId, 'pending']
+    );
+    if (reqObj.rows.length === 0) return res.json({ error: '申请不存在或已处理' });
+
+    const { from_user } = reqObj.rows[0];
+    await db.query('INSERT INTO friends (user_id, friend_id) VALUES ($1, $2), ($2, $1) ON CONFLICT DO NOTHING',
+      [req.userId, from_user]);
+
+    const fromSid = onlineUsers.get(from_user);
+    if (fromSid) io.to(fromSid).emit('friend_accepted');
+    res.json({ success: true });
+  } catch (err) {
+    console.error(err);
+    res.json({ error: '服务器错误' });
+  }
+});
+
+// 拒绝好友请求
+app.post('/api/friend-request/:id/reject', auth, async (req, res) => {
+  try {
+    const reqObj = await db.query(
+      'UPDATE friend_requests SET status = $1 WHERE id = $2 AND to_user = $3 AND status = $4 RETURNING *',
+      ['rejected', req.params.id, req.userId, 'pending']
+    );
+    if (reqObj.rows.length === 0) return res.json({ error: '申请不存在或已处理' });
+    res.json({ success: true });
+  } catch (err) {
+    console.error(err);
+    res.json({ error: '服务器错误' });
+  }
+});
+
+// 删除好友
+app.post('/api/friend-remove', auth, async (req, res) => {
+  const { friendId } = req.body;
+  const fid = parseInt(friendId);
+  try {
+    const friendCheck = await db.query(
+      'SELECT 1 FROM friends WHERE user_id = $1 AND friend_id = $2',
+      [req.userId, fid]
+    );
+    if (friendCheck.rows.length === 0) return res.json({ error: '不是好友' });
+
+    await db.query('DELETE FROM friends WHERE (user_id = $1 AND friend_id = $2) OR (user_id = $2 AND friend_id = $1)',
+      [req.userId, fid]);
+
+    const userRes = await db.query('SELECT nickname, username FROM users WHERE id = $1', [req.userId]);
+    const displayName = userRes.rows[0].nickname || userRes.rows[0].username;
+    await db.query(
+      'INSERT INTO notifications (user_id, message) VALUES ($1, $2)',
+      [fid, `用户 ${displayName} 已将你从好友列表删除`]
+    );
+
+    const targetSid = onlineUsers.get(fid);
+    if (targetSid) io.to(targetSid).emit('friend_removed');
+    res.json({ success: true });
+  } catch (err) {
+    console.error(err);
+    res.json({ error: '服务器错误' });
+  }
+});
+
+// 创建群组
+app.post('/api/groups', auth, async (req, res) => {
+  const { name } = req.body;
+  if (!name || name.trim().length === 0) return res.json({ error: '群名称不能为空' });
+  if (name.trim().length > 50) return res.json({ error: '群名称最多50个字符' });
+
+  try {
+    const groupCount = await db.query(
+      'SELECT COUNT(*) FROM group_members WHERE user_id = $1',
+      [req.userId]
+    );
+    if (parseInt(groupCount.rows[0].count) >= 50) return res.json({ error: '你已加入的群组过多（最多50个）' });
+
+    const result = await db.query(
+      'INSERT INTO groups (name, owner_id) VALUES ($1, $2) RETURNING *',
+      [sanitizeText(name.trim()), req.userId]
+    );
+    const group = result.rows[0];
+    await db.query('INSERT INTO group_members (group_id, user_id, role) VALUES ($1, $2, $3)',
+      [group.id, req.userId, 'owner']);
+    res.json({ group: { id: group.id, name: group.name } });
+  } catch (err) {
+    console.error(err);
+    res.json({ error: '创建群组失败' });
+  }
+});
+
+// 获取群组列表
+app.get('/api/groups', auth, async (req, res) => {
+  try {
+    const result = await db.query(
+      `SELECT g.id, g.name FROM groups g
+       JOIN group_members gm ON g.id = gm.group_id
+       WHERE gm.user_id = $1`,
+      [req.userId]
+    );
+    res.json({ groups: result.rows });
+  } catch (err) {
+    console.error(err);
+    res.json({ error: '获取群组列表失败' });
+  }
+});
+
+// 获取私聊消息
+app.get('/api/messages/friend/:friendId', auth, async (req, res) => {
+  const friendId = parseInt(req.params.friendId);
+  try {
+    const friendCheck = await db.query(
+      'SELECT 1 FROM friends WHERE user_id = $1 AND friend_id = $2',
+      [req.userId, friendId]
+    );
+    if (friendCheck.rows.length === 0) return res.json({ error: '不是好友' });
+
+    const clearRes = await db.query(
+      "SELECT COALESCE(cleared_timestamps->>$1, '0') as clear_time FROM users WHERE id = $2",
+      [`friend_${friendId}`, req.userId]
+    );
+    const clearTime = parseInt(clearRes.rows[0].clear_time) || 0;
+
+    const result = await db.query(
+      `SELECT * FROM messages
+       WHERE ((from_user = $1 AND to_user = $2) OR (from_user = $2 AND to_user = $1))
+       AND to_user IS NOT NULL AND group_id IS NULL
+       AND created_at > to_timestamp($3 / 1000.0)
+       ORDER BY created_at ASC`,
+      [req.userId, friendId, clearTime]
+    );
+    res.json({ messages: result.rows });
+  } catch (err) {
+    console.error(err);
+    res.json({ error: '获取消息失败' });
+  }
+});
+
+// 获取群聊消息
+app.get('/api/messages/group/:groupId', auth, async (req, res) => {
+  const groupId = parseInt(req.params.groupId);
+  try {
+    const memberCheck = await db.query(
+      'SELECT 1 FROM group_members WHERE group_id = $1 AND user_id = $2',
+      [groupId, req.userId]
+    );
+    if (memberCheck.rows.length === 0) return res.json({ error: '不在群组中' });
+
+    const clearRes = await db.query(
+      "SELECT COALESCE(cleared_timestamps->>$1, '0') as clear_time FROM users WHERE id = $2",
+      [`group_${groupId}`, req.userId]
+    );
+    const clearTime = parseInt(clearRes.rows[0].clear_time) || 0;
+
+    const result = await db.query(
+      `SELECT * FROM messages
+       WHERE group_id = $1
+       AND created_at > to_timestamp($2 / 1000.0)
+       ORDER BY created_at ASC`,
+      [groupId, clearTime]
+    );
+    res.json({ messages: result.rows });
+  } catch (err) {
+    console.error(err);
+    res.json({ error: '获取消息失败' });
+  }
+});
+
+// 删除消息
+app.post('/api/message/delete', auth, async (req, res) => {
+  const { messageId } = req.body;
+  try {
+    const msgRes = await db.query('SELECT * FROM messages WHERE id = $1', [messageId]);
+    if (msgRes.rows.length === 0) return res.json({ error: '消息不存在' });
+    const msg = msgRes.rows[0];
+    if (msg.from_user !== req.userId) return res.status(403).json({ error: '无权限' });
+
+    if (msg.content && (msg.content.startsWith('/api/file/') || msg.content.startsWith('/uploads/'))) {
+      const file = path.basename(msg.content);
+      const filePath = path.join(UPLOAD_DIR, file);
+      try { fs.unlinkSync(filePath); } catch(e) {}
+    }
+
+    await db.query('DELETE FROM messages WHERE id = $1', [messageId]);
+
+    if (msg.to_user) {
+      io.to(`user_${msg.from_user}`).emit('message_deleted', { messageId: msg.id });
+      io.to(`user_${msg.to_user}`).emit('message_deleted', { messageId: msg.id });
+    } else if (msg.group_id) {
+      const members = await db.query('SELECT user_id FROM group_members WHERE group_id = $1', [msg.group_id]);
+      members.rows.forEach(m => {
+        io.to(`user_${m.user_id}`).emit('message_deleted', { messageId: msg.id });
       });
+    }
+    res.json({ success: true });
+  } catch (err) {
+    console.error(err);
+    res.json({ error: '删除失败' });
+  }
+});
 
-      timeoutId = setTimeout(() => {
-        if(!ackReceived) {
-          isSending = false;
-          alert('发送超时，请稍后重试');
-          input.value = content;
-        }
-      }, 5000);
+// 清空聊天
+app.post('/api/chat/clear', auth, async (req, res) => {
+  const { chatType, chatId } = req.body;
+  if (!chatType || !chatId) return res.json({ error: '参数错误' });
+  const cid = parseInt(chatId);
+  const now = Date.now();
+
+  try {
+    if (chatType === 'friend') {
+      const friendCheck = await db.query(
+        'SELECT 1 FROM friends WHERE user_id = $1 AND friend_id = $2',
+        [req.userId, cid]
+      );
+      if (friendCheck.rows.length === 0) return res.json({ error: '不是好友' });
+
+      const key = `friend_${cid}`;
+      await db.query(
+        `UPDATE users SET cleared_timestamps = jsonb_set(cleared_timestamps, $1, to_jsonb($2::text)) WHERE id = $3`,
+        [`{${key}}`, now.toString(), req.userId]
+      );
+      io.to(`user_${req.userId}`).emit('chat_cleared', { chatType, chatId: cid });
+    } else if (chatType === 'group') {
+      const memberCheck = await db.query(
+        'SELECT 1 FROM group_members WHERE group_id = $1 AND user_id = $2',
+        [cid, req.userId]
+      );
+      if (memberCheck.rows.length === 0) return res.json({ error: '无权操作' });
+
+      const key = `group_${cid}`;
+      await db.query(
+        `UPDATE users SET cleared_timestamps = jsonb_set(cleared_timestamps, $1, to_jsonb($2::text)) WHERE id = $3`,
+        [`{${key}}`, now.toString(), req.userId]
+      );
+      io.to(`user_${req.userId}`).emit('chat_cleared', { chatType, chatId: cid });
+    } else {
+      return res.json({ error: '未知类型' });
+    }
+    res.json({ success: true });
+  } catch (err) {
+    console.error(err);
+    res.json({ error: '清空失败' });
+  }
+});
+
+// 修改密码
+app.post('/api/change-password', auth, async (req, res) => {
+  const { oldPassword, newPassword } = req.body;
+  const newPwd = newPassword ? newPassword.trim() : '';
+  if (newPwd.length < 8 || !/^(?=.*[a-zA-Z])(?=.*\d)/.test(newPwd)) {
+    return res.json({ error: '新密码至少8位，且包含字母和数字' });
+  }
+  try {
+    const userRes = await db.query('SELECT password FROM users WHERE id = $1', [req.userId]);
+    const valid = await bcrypt.compare(oldPassword || '', userRes.rows[0].password);
+    if (!valid) return res.json({ error: '旧密码错误' });
+    const hash = await bcrypt.hash(newPwd, 12);
+    await db.query('UPDATE users SET password = $1 WHERE id = $2', [hash, req.userId]);
+    res.json({ success: true });
+  } catch (err) {
+    console.error(err);
+    res.json({ error: '修改失败' });
+  }
+});
+
+// 上传头像
+app.post('/api/avatar/upload', auth, (req, res) => {
+  upload.single('avatar')(req, res, async (err) => {
+    if (err) {
+      if (err.code === 'LIMIT_FILE_SIZE') return res.json({ error: '文件过大' });
+      return res.json({ error: err.message || '上传失败' });
+    }
+    if (!req.file) return res.json({ error: '未选择文件' });
+    const ext = path.extname(req.file.originalname).toLowerCase().substring(1);
+    const allowed = ['jpg', 'jpeg', 'png', 'gif', 'webp'];
+    if (!allowed.includes(ext)) {
+      fs.unlinkSync(req.file.path);
+      return res.json({ error: '不支持的文件类型' });
+    }
+    if (!validateMagicNumber(req.file.path, ext)) {
+      fs.unlinkSync(req.file.path);
+      return res.json({ error: '文件内容不符合' });
+    }
+    if (req.file.size > 5 * 1024 * 1024) {
+      fs.unlinkSync(req.file.path);
+      return res.json({ error: '头像不能超过5MB' });
     }
 
-    async function handleFileUpload(e){
-      const files = e.target.files;
-      if(!files.length) return;
+    const url = `/api/file/${req.file.filename}`;
+    try {
+      await db.query('UPDATE users SET avatar = $1 WHERE id = $2', [url, req.userId]);
+      await db.query('INSERT INTO uploaded_files (filename, owner_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
+        [req.file.filename, req.userId]);
+      fileOwners.set(req.file.filename, req.userId);  // 更新内存
+      res.json({ avatar: url });
+    } catch (e) {
+      console.error(e);
+      fs.unlinkSync(req.file.path);
+      res.json({ error: '更新头像失败' });
+    }
+  });
+});
 
-      for(let file of files){
-        const MAX_FILE_SIZE = 20 * 1024 * 1024;
-        if(file.size > MAX_FILE_SIZE) {
-          alert('文件不能超过20MB');
-          continue;
-        }
-
-        const fd = new FormData();
-        fd.append('file', file);
-        const res = await fetch('/api/upload',{method:'POST',body:fd,credentials:'include'});
-        const data = await res.json();
-        if(data.url){
-          let type = 'file';
-          let duration = null;
-          if(file.type.startsWith('image/')) type='image';
-          else if(file.type.startsWith('video/')) type='video';
-          else if(file.type.startsWith('audio/')){
-            type='voice';
-            duration = await new Promise((resolve) => {
-              const audio = document.createElement('audio');
-              audio.src = URL.createObjectURL(file);
-              audio.onloadedmetadata = () => {
-                const d = Math.round(audio.duration || 0);
-                URL.revokeObjectURL(audio.src);
-                resolve(d);
-              };
-              audio.onerror = () => {
-                URL.revokeObjectURL(audio.src);
-                resolve(0);
-              };
-            });
-          }
-
-          const clientMsgId = Date.now() + '_' + Math.random().toString(36).substr(2, 9);
-          socket.emit('private message', {
-            clientMsgId,
-            to: selectedChat.id,
-            toType: selectedChat.type,
-            type,
-            content: data.url,
-            fileName: file.name,
-            duration: duration
-          }, (ack) => {
-            if(!ack || !ack.success) {
-              alert(ack?.error || '文件发送失败');
-            }
-          });
-        } else {
-          alert('文件上传失败');
-        }
-      }
-      e.target.value = '';
+// 上传聊天背景
+app.post('/api/background/upload', auth, (req, res) => {
+  upload.single('background')(req, res, async (err) => {
+    if (err) {
+      if (err.code === 'LIMIT_FILE_SIZE') return res.json({ error: '文件过大' });
+      return res.json({ error: err.message || '上传失败' });
+    }
+    if (!req.file) return res.json({ error: '未选择文件' });
+    const ext = path.extname(req.file.originalname).toLowerCase().substring(1);
+    const allowed = ['jpg', 'jpeg', 'png', 'gif', 'webp'];
+    if (!allowed.includes(ext)) {
+      fs.unlinkSync(req.file.path);
+      return res.json({ error: '不支持的文件类型' });
+    }
+    if (req.file.size > 5 * 1024 * 1024) {
+      fs.unlinkSync(req.file.path);
+      return res.json({ error: '背景图片不能超过5MB' });
     }
 
-    function updateBadge(){ renderSidebar(); renderBottomNav(); }
+    const url = `/api/file/${req.file.filename}`;
+    try {
+      await db.query('UPDATE users SET chat_background = $1 WHERE id = $2', [url, req.userId]);
+      await db.query('INSERT INTO uploaded_files (filename, owner_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
+        [req.file.filename, req.userId]);
+      fileOwners.set(req.file.filename, req.userId);
+      res.json({ chatBackground: url });
+    } catch (e) {
+      console.error(e);
+      fs.unlinkSync(req.file.path);
+      res.json({ error: '更新背景失败' });
+    }
+  });
+});
 
-    // 启动
-    (async function init(){
-      try{
-        const data = await api('/api/me');
-        if(data.user){
-          currentUser = data.user;
-          connectSocket();
-          renderMain();
-        } else {
-          // 未登录（包括 401 或 user:null），显示登录页
-          renderAuth('login');
-        }
-      } catch(e) {
-        console.error(e);
-        document.getElementById('app').innerHTML='<div style="padding:40px;">初始化失败，请刷新页面</div>';
+// 通用文件上传
+app.post('/api/upload', auth, (req, res) => {
+  upload.single('file')(req, res, async (err) => {
+    if (err) {
+      if (err.code === 'LIMIT_FILE_SIZE') return res.json({ error: '文件过大' });
+      return res.json({ error: err.message || '上传失败' });
+    }
+    if (!req.file) return res.json({ error: '未选择文件' });
+
+    const ext = path.extname(req.file.originalname).toLowerCase().substring(1);
+    const typeInfo = ALLOWED_FILE_TYPES[ext];
+    if (!typeInfo) {
+      fs.unlinkSync(req.file.path);
+      return res.json({ error: '不支持的文件类型' });
+    }
+    if (req.file.size > typeInfo.maxSize) {
+      fs.unlinkSync(req.file.path);
+      return res.json({ error: `文件过大，${ext} 最大允许 ${Math.round(typeInfo.maxSize / 1024 / 1024)}MB` });
+    }
+
+    // 问题4：对全部可识别类型进行魔数校验
+    const needMagic = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'pdf', 'zip', 'mp3', 'mp4', 'webm', 'wav', 'ogg'];
+    if (needMagic.includes(ext)) {
+      if (!validateMagicNumber(req.file.path, ext)) {
+        fs.unlinkSync(req.file.path);
+        return res.json({ error: '文件内容与扩展名不符' });
       }
-    })();
-  })();
-</script>
-</body>
-</html>
+    }
+
+    const url = `/api/file/${req.file.filename}`;
+    try {
+      await db.query('INSERT INTO uploaded_files (filename, owner_id) VALUES ($1, $2)',
+        [req.file.filename, req.userId]);
+      fileOwners.set(req.file.filename, req.userId);
+      res.json({ url, originalName: req.file.originalname });
+    } catch (e) {
+      fs.unlinkSync(req.file.path);
+      res.json({ error: '文件记录失败' });
+    }
+  });
+});
+
+// 文件访问权限验证
+app.get('/api/file/:name', auth, async (req, res) => {
+  const filename = path.basename(req.params.name);
+  const filePath = path.join(UPLOAD_DIR, filename);
+  if (!fs.existsSync(filePath)) {
+    return res.status(404).json({ error: '文件不存在' });
+  }
+
+  try {
+    const ownerCheck = await db.query('SELECT owner_id FROM uploaded_files WHERE filename = $1', [filename]);
+    if (ownerCheck.rows.length > 0 && ownerCheck.rows[0].owner_id === req.userId) {
+      return res.sendFile(filePath);
+    }
+
+    const userRes = await db.query('SELECT avatar, chat_background FROM users WHERE id = $1', [req.userId]);
+    const user = userRes.rows[0];
+    const fileUrl = `/api/file/${filename}`;
+    if (user.avatar === fileUrl || user.chat_background === fileUrl) {
+      return res.sendFile(filePath);
+    }
+
+    const msgCheck = await db.query(`
+      SELECT m.id FROM messages m
+      LEFT JOIN group_members gm ON m.group_id = gm.group_id AND gm.user_id = $2
+      WHERE m.content = $1 OR m.content = $3
+      AND (m.to_user = $2 OR m.from_user = $2 OR gm.user_id = $2)
+      LIMIT 1
+    `, [fileUrl, req.userId, `/uploads/${filename}`]);
+    if (msgCheck.rows.length > 0) {
+      return res.sendFile(filePath);
+    }
+
+    res.status(403).json({ error: '无权访问该文件' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: '服务器错误' });
+  }
+});
+
+// 通知列表
+app.get('/api/notifications', auth, async (req, res) => {
+  try {
+    const result = await db.query(
+      'SELECT * FROM notifications WHERE user_id = $1 ORDER BY created_at DESC',
+      [req.userId]
+    );
+    res.json({ notifications: result.rows });
+  } catch (err) {
+    console.error(err);
+    res.json({ error: '获取通知失败' });
+  }
+});
+
+// 更新个人资料
+app.post('/api/profile', auth, async (req, res) => {
+  const { nickname, gender, region, signature } = req.body;
+  try {
+    const fields = {};
+    if (nickname !== undefined) fields.nickname = sanitizeText(nickname).substring(0, 30);
+    if (gender !== undefined) fields.gender = sanitizeText(gender).substring(0, 10);
+    if (region !== undefined) fields.region = sanitizeText(region).substring(0, 30);
+    if (signature !== undefined) fields.signature = sanitizeText(signature).substring(0, 200);
+
+    if (Object.keys(fields).length > 0) {
+      const setClauses = Object.keys(fields).map((key, i) => `${key} = $${i + 1}`);
+      const values = Object.values(fields);
+      await db.query(`UPDATE users SET ${setClauses.join(', ')} WHERE id = $${values.length + 1}`,
+        [...values, req.userId]);
+    }
+    res.json({ success: true });
+  } catch (err) {
+    console.error(err);
+    res.json({ error: '更新资料失败' });
+  }
+});
+
+// 生成邀请码（问题6：确保唯一）
+app.post('/api/invite-codes', auth, async (req, res) => {
+  const { max_uses, is_permanent } = req.body;
+  try {
+    let code;
+    while (true) {
+      code = crypto.randomBytes(4).toString('hex').toUpperCase();
+      const conflict = await db.query('SELECT 1 FROM invite_codes WHERE code = $1', [code]);
+      if (conflict.rows.length === 0) break;
+    }
+    await db.query(
+      'INSERT INTO invite_codes (code, creator, is_permanent, max_uses) VALUES ($1, $2, $3, $4)',
+      [code, req.userId, !!is_permanent, max_uses || 1]
+    );
+    res.json({ code });
+  } catch (err) {
+    console.error(err);
+    res.json({ error: '生成邀请码失败' });
+  }
+});
+
+// 查询邀请码
+app.get('/api/invite-codes/:code', async (req, res) => {
+  try {
+    const result = await db.query(
+      'SELECT code, is_permanent, max_uses, used_count FROM invite_codes WHERE code = $1',
+      [req.params.code]
+    );
+    if (result.rows.length === 0) return res.status(404).json({ error: '邀请码不存在' });
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error(err);
+    res.json({ error: '查询失败' });
+  }
+});
+
+// ========== 启动服务器 ==========
+db.query('SELECT NOW()')
+  .then(() => console.log('Neon Connected'))
+  .catch(err => console.error('Neon 连接失败:', err));
+
+initDB()
+  .then(() => {
+    const PORT = process.env.PORT || 3000;
+    server.listen(PORT, () => {
+      console.log(`悄悄话后端已启动，端口 ${PORT}`);
+    });
+  })
+  .catch(err => {
+    console.error('数据库初始化失败', err);
+    process.exit(1);
+  });
