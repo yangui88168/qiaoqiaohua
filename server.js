@@ -475,6 +475,7 @@ io.on('connection', (socket) => {
     }
   });
 
+  // 私聊消息（只推送给接收者，发送者通过 ACK 接收）
   socket.on('private message', async (data, ack) => {
     if (!socket.userId) {
       if (typeof ack === 'function') ack({ success: false, error: '未登录' });
@@ -521,9 +522,10 @@ io.on('connection', (socket) => {
           [socket.userId, parseInt(to), type, content.trim(), fileName || null, duration || null]
         );
         const msg = result.rows[0];
-        io.to(`user_${socket.userId}`).emit('chat message', msg);
+        // 只推送给接收方
         io.to(`user_${to}`).emit('chat message', msg);
         if (clientMsgId) processedMsgIds.add(clientMsgId);
+        // 通过 ACK 把消息回传给发送方
         if (typeof ack === 'function') ack({ success: true, msg });
       } catch (err) {
         if (typeof ack === 'function') ack({ success: false, error: '消息发送失败' });
@@ -609,7 +611,6 @@ app.get('/api/health', (req, res) => {
   res.json({ success: true, service: 'qiaoqiaohua-backend', status: 'running' });
 });
 
-// 注册（已修复邀请码验证）
 app.post('/api/register', async (req, res) => {
   const { username, password, nickname, inviteCode } = req.body;
   const trimmedPassword = password ? password.trim() : '';
