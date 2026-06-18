@@ -173,9 +173,15 @@
         console.error('Socket 连接错误:', err.message);
       });
 
-      // ===== 新增：监听 friend_request_received 事件 =====
+      // ③ 接收离线好友申请（登录时拉取）
+      socket.on("pending_friend_requests", (list) => {
+        console.log("收到离线好友申请列表", list);
+        list.forEach(showFriendRequestPopup);
+      });
+
+      // 实时好友申请
       socket.on('friend_request_received', (data) => {
-        console.log("收到好友申请", data);
+        console.log("收到实时好友申请", data);
         showFriendRequestPopup(data);
       });
 
@@ -247,17 +253,24 @@
       });
     }
 
-    // ===== 新增：好友申请弹窗处理函数 =====
+    // 好友申请弹窗处理函数（支持离线和实时）
     function showFriendRequestPopup(data) {
-      // 在通知区域或侧边栏更新未读数
+      // 确保 data 包含必要字段
+      if (!data || !data.fromId && !data.from_user) return;
+      const fromId = data.fromId || data.from_user;
+      const message = data.message || '请求添加好友';
+      
+      // 刷新好友请求列表和未读角标
       fetchFriendRequests();
       updateBadge();
+      
       // 如果当前在通讯录页面，自动刷新
       if(activeNav === 'contacts') {
         switchView('contacts');
       }
-      // 可选：弹窗提示
-      alert(`收到来自用户 ${data.fromId} 的好友申请`);
+      
+      // 弹出提示
+      alert(`收到来自用户 ${fromId} 的好友申请`);
     }
 
     async function startCall(isCaller, remoteOffer){
