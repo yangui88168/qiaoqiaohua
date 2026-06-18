@@ -5,7 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=yes">
   <title>悄悄话 · 即时通讯</title>
   <style>
-    /* 样式保持不变 */
     :root {
       --primary: #4f5bff;
       --primary-light: #eef0ff;
@@ -118,7 +117,6 @@
       return API_BASE + url;
     }
 
-    // 带重试的API请求
     async function api(url, options = {}, retry = 3) {
       try {
         const res = await fetch(url, {
@@ -148,7 +146,6 @@
     function clearUnread(key) { unreadCounts[key]=0; }
     function escapeHtml(text) { const div = document.createElement('div'); div.textContent = text; return div.innerHTML; }
 
-    // Socket 连接配置
     function connectSocket(){
       if(socket) {
         socket.removeAllListeners();
@@ -174,6 +171,12 @@
 
       socket.on('connect_error', (err) => {
         console.error('Socket 连接错误:', err.message);
+      });
+
+      // ===== 新增：监听 friend_request_received 事件 =====
+      socket.on('friend_request_received', (data) => {
+        console.log("收到好友申请", data);
+        showFriendRequestPopup(data);
       });
 
       socket.on('chat message', (msg) => {
@@ -216,7 +219,6 @@
         renderConversationList();
       });
 
-      // WebRTC 信令
       socket.on('call_offer', async ({from, offer}) => {
         if(confirm(`用户 ${from} 邀请你进行通话，是否接受？`)){
           callInfo = { peerId: from, isCaller: false };
@@ -245,7 +247,19 @@
       });
     }
 
-    // WebRTC 通话（保持不变）
+    // ===== 新增：好友申请弹窗处理函数 =====
+    function showFriendRequestPopup(data) {
+      // 在通知区域或侧边栏更新未读数
+      fetchFriendRequests();
+      updateBadge();
+      // 如果当前在通讯录页面，自动刷新
+      if(activeNav === 'contacts') {
+        switchView('contacts');
+      }
+      // 可选：弹窗提示
+      alert(`收到来自用户 ${data.fromId} 的好友申请`);
+    }
+
     async function startCall(isCaller, remoteOffer){
       try {
         localStream = await navigator.mediaDevices.getUserMedia({audio:true, video:false});
@@ -320,7 +334,6 @@
       if(d.messages&&d.messages.length) lastMessages[key]=(d.messages[d.messages.length-1].type==='text'?d.messages[d.messages.length-1].content:'[媒体]');
     }
 
-    // 渲染登录/注册界面
     function renderAuth(mode = 'login') {
       document.getElementById('app').innerHTML = `
         <div class="auth-wrapper">
@@ -364,7 +377,6 @@
       });
     }
 
-    // 渲染主界面
     async function renderMain(){
       document.getElementById('app').innerHTML = `
         <div class="main-layout" id="main-layout">
@@ -769,7 +781,7 @@
       for(let file of files){
         const MAX_FILE_SIZE = 15 * 1024 * 1024;
         if(file.size > MAX_FILE_SIZE) {
-          alert('文件不能超过20MB');
+          alert('文件不能超过15MB');
           continue;
         }
 
@@ -822,7 +834,6 @@
 
     function updateBadge(){ renderSidebar(); renderBottomNav(); }
 
-    // 启动
     (async function init(){
       try{
         const data = await api('/api/me');
