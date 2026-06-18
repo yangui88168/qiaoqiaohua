@@ -146,6 +146,15 @@
     function clearUnread(key) { unreadCounts[key]=0; }
     function escapeHtml(text) { const div = document.createElement('div'); div.textContent = text; return div.innerHTML; }
 
+    // 将消息对象统一映射，补上 `from` 字段
+    function normalizeMessage(msg) {
+      if (!msg) return msg;
+      if (msg.from === undefined && msg.from_user !== undefined) {
+        msg.from = msg.from_user;
+      }
+      return msg;
+    }
+
     function connectSocket(){
       if(socket) {
         socket.removeAllListeners();
@@ -161,7 +170,6 @@
 
       socket.on('connect', () => {
         console.log('Socket 已连接');
-        // 连接成功后发送 login 事件，触发后端拉取离线申请并绑定在线状态
         if (currentUser && currentUser.id) {
           socket.emit('login', currentUser.id);
         }
@@ -177,7 +185,6 @@
         console.error('Socket 连接错误:', err.message);
       });
 
-      // 接收离线好友申请（登录时拉取）
       socket.on("pending_friend_requests", (list) => {
         console.log("收到离线好友申请列表", list);
         if (Array.isArray(list)) {
@@ -185,16 +192,19 @@
         }
       });
 
-      // 实时好友申请
       socket.on('friend_request_received', (data) => {
         console.log("收到实时好友申请", data);
         showFriendRequestPopup(data);
       });
 
       socket.on('chat message', (msg) => {
+        normalizeMessage(msg);
         const key = msg.toType==='group'?`group_${msg.to}`:`friend_${msg.from===currentUser.id?msg.to:msg.from}`;
         if(!messagesCache[key]) messagesCache[key]=[];
-        messagesCache[key].push(msg);
+        // 避免重复插入（使用 id 去重）
+        if (!messagesCache[key].some(m => m.id === msg.id)) {
+          messagesCache[key].push(msg);
+        }
         if(messagesCache[key].length > 500) messagesCache[key].shift();
 
         lastMessages[key] = (msg.type==='text'?msg.content:(msg.type==='image'?'[图片]':msg.type==='file'?'[文件]':msg.type==='voice'?'[语音]':'[视频]'));
@@ -259,22 +269,18 @@
       });
     }
 
-    // 好友申请弹窗处理函数（支持离线和实时）
     function showFriendRequestPopup(data) {
       if (!data) return;
       const fromId = data.fromId || data.from_user;
       if (!fromId) return;
       
-      // 刷新好友请求列表和未读角标
       fetchFriendRequests();
       updateBadge();
       
-      // 如果当前在通讯录页面，自动刷新
       if(activeNav === 'contacts') {
         switchView('contacts');
       }
       
-      // 弹出提示
       alert(`收到来自用户 ${fromId} 的好友申请`);
     }
 
@@ -342,12 +348,11 @@
 
     async function fetchFriends(){ const d=await api('/api/friends'); friends=d.friends||[]; }
     
-    // 修正：统一映射字段，确保 to 字段存在
     async function fetchFriendRequests(){ 
       const d=await api('/api/friend-requests'); 
       friendRequests = (d.requests || []).map(req => ({
         ...req,
-        to: req.to_user,        // 统一映射，方便后续过滤
+        to: req.to_user,
         from: req.from_user,
         fromUsername: req.from_username,
         toUsername: req.to_username
@@ -360,8 +365,11 @@
       const ep = chatType==='friend'?`/api/messages/friend/${chatId}`:`/api/messages/group/${chatId}`;
       const d = await api(ep);
       const key = chatType==='friend'?`friend_${chatId}`:`group_${chatId}`;
-      messagesCache[key] = d.messages||[];
-      if(d.messages&&d.messages.length) lastMessages[key]=(d.messages[d.messages.length-1].type==='text'?d.messages[d.messages.length-1].content:'[媒体]');
+      messagesCache[key] = (d.messages||[]).map(normalizeMessage);
+      if(d.messages&&d.messages.length) {
+        const last = d.messages[d.messages.length-1];
+        lastMessages[key] = (last.type==='text'?last.content:'[媒体]');
+      }
     }
 
     function renderAuth(mode = 'login') {
@@ -515,7 +523,6 @@
         <div class="section-title" style="margin-top:16px;">👥 我的群组</div><div id="group-list"></div>
       `;
       const reqList = document.getElementById('req-list');
-      // 现在 r.to 已经过映射，可以正确匹配
       const pendingReqs = friendRequests.filter(r=>r.to===currentUser.id && r.status==='pending');
       if(!pendingReqs.length) reqList.innerHTML='<div style="padding:12px;color:var(--text-secondary);">暂无新的朋友请求</div>';
       else pendingReqs.forEach(req=>{
@@ -713,6 +720,7 @@
       ul.innerHTML = '';
       msgs.forEach(m=>{
         const li = document.createElement('li');
+        // 统一使用 m.from 判断
         li.className = `msg-item ${m.from===currentUser.id?'self':''}`;
         if(m.type==='text'){
           li.textContent = m.content;
@@ -730,7 +738,7 @@
           a.textContent = `📄 ${m.fileName||'文件'}`;
           li.appendChild(a);
         } else if(m.type==='voice'){
-          // 预留语音消息渲染，暂不实现
+          // 预留
         } else if(m.type==='video'){
           const video = document.createElement('video');
           video.controls = true;
@@ -738,7 +746,7 @@
           video.style.maxWidth = '100%';
           li.appendChild(video);
         } else if(m.type==='emoji'){
-          // 预留表情消息渲染，暂不实现
+          // 预留
         }
         const delBtn = document.createElement('button');
         delBtn.className = 'msg-delete-btn';
@@ -773,6 +781,26 @@
       input.value = '';
 
       const clientMsgId = Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+
+      // 乐观更新：立即在本地插入消息并刷新
+      if (selectedChat) {
+        const key = selectedChat.type==='friend'?`friend_${selectedChat.id}`:`group_${selectedChat.id}`;
+        if (!messagesCache[key]) messagesCache[key] = [];
+        const tempMsg = {
+          id: 'temp_' + clientMsgId,
+          from: currentUser.id,
+          to: selectedChat.type==='friend'?selectedChat.id:null,
+          toType: selectedChat.type,
+          type: 'text',
+          content: content,
+          created_at: new Date().toISOString()
+        };
+        messagesCache[key].push(tempMsg);
+        lastMessages[key] = content;
+        renderChatMessages();
+        renderConversationList();
+      }
+
       let timeoutId;
       let ackReceived = false;
 
@@ -786,13 +814,17 @@
         ackReceived = true;
         clearTimeout(timeoutId);
         isSending = false;
-        if(ack && ack.success) {
-        } else if(ack && ack.error) {
-          alert(ack.error);
-          input.value = content;
-        } else {
-          alert('发送失败');
-          input.value = content;
+        if(!ack || !ack.success) {
+          if(ack && ack.error) alert(ack.error);
+          // 发送失败，移除乐观更新的消息
+          if (selectedChat) {
+            const key = selectedChat.type==='friend'?`friend_${selectedChat.id}`:`group_${selectedChat.id}`;
+            if (messagesCache[key]) {
+              messagesCache[key] = messagesCache[key].filter(m => m.id !== 'temp_' + clientMsgId);
+              renderChatMessages();
+              renderConversationList();
+            }
+          }
         }
       });
 
@@ -800,7 +832,15 @@
         if(!ackReceived) {
           isSending = false;
           alert('发送超时，请稍后重试');
-          input.value = content;
+          // 移除乐观更新
+          if (selectedChat) {
+            const key = selectedChat.type==='friend'?`friend_${selectedChat.id}`:`group_${selectedChat.id}`;
+            if (messagesCache[key]) {
+              messagesCache[key] = messagesCache[key].filter(m => m.id !== 'temp_' + clientMsgId);
+              renderChatMessages();
+              renderConversationList();
+            }
+          }
         }
       }, 5000);
     }
