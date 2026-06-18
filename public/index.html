@@ -146,6 +146,7 @@
     function clearUnread(key) { unreadCounts[key]=0; }
     function escapeHtml(text) { const div = document.createElement('div'); div.textContent = text; return div.innerHTML; }
 
+    // 标准化消息：补上 from 字段
     function normalizeMessage(msg) {
       if (!msg) return msg;
       if (msg.from === undefined && msg.from_user !== undefined) {
@@ -199,8 +200,7 @@
       // 接收消息（仅来自好友的，自己发送的不再通过此事件）
       socket.on('chat message', (msg) => {
         normalizeMessage(msg);
-        // 如果这条消息是自己发的（可能来自群聊等场景），忽略
-        if (msg.from === currentUser.id) return;
+        if (msg.from === currentUser.id) return;   // 自己的消息已在ACK处理
 
         const key = msg.toType==='group'?`group_${msg.to}`:`friend_${msg.from}`;
         if(!messagesCache[key]) messagesCache[key]=[];
@@ -811,17 +811,21 @@
         clearTimeout(timeoutId);
         isSending = false;
         if (ack && ack.success && ack.msg) {
-          // 用服务器返回的真实消息替换临时消息
+          // 标准化服务器返回的消息，补上 from 字段
+          const realMsg = normalizeMessage(ack.msg);
           if (selectedChat) {
             const key = selectedChat.type==='friend'?`friend_${selectedChat.id}`:`group_${selectedChat.id}`;
             if (messagesCache[key]) {
               const tempIndex = messagesCache[key].findIndex(m => m.id === 'temp_' + clientMsgId);
               if (tempIndex !== -1) {
-                messagesCache[key][tempIndex] = ack.msg;
+                messagesCache[key][tempIndex] = realMsg;
               } else {
-                messagesCache[key].push(ack.msg);
+                // 确保不重复
+                if (!messagesCache[key].some(m => m.id === realMsg.id)) {
+                  messagesCache[key].push(realMsg);
+                }
               }
-              lastMessages[key] = ack.msg.content;
+              lastMessages[key] = realMsg.content;
               renderChatMessages();
               renderConversationList();
             }
