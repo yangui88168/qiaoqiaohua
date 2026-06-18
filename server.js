@@ -154,7 +154,7 @@ const db = new Pool({
   ssl: { rejectUnauthorized: false }
 });
 
-// ========== Session 持久化到 PostgreSQL（增加 createTableIfMissing） ==========
+// ========== Session 持久化到 PostgreSQL ==========
 const sessionMiddleware = session({
   store: new pgSession({
     pool: db,
@@ -248,13 +248,12 @@ function validateMagicNumber(filePath, expectedType) {
   return hex.startsWith(expectedHex);
 }
 
-// 静态文件服务 - 绝对路径
 app.use(express.static(path.join(__dirname, 'public')));
 
 // ========== 在线用户 Map ==========
 const onlineUsers = new Map();
 
-// ========== 数据库初始化（含 session 表） ==========
+// ========== 数据库初始化 ==========
 async function initDB() {
   await db.query(`
     CREATE TABLE IF NOT EXISTS "session" (
@@ -413,14 +412,12 @@ const processedMsgIds = new Set();
 setInterval(() => processedMsgIds.clear(), 5 * 60 * 1000);
 
 io.on('connection', (socket) => {
-  // 自动通过 session 绑定 onlineUsers
   if (socket.userId) {
     onlineUsers.set(socket.userId, socket.id);
     socket.join(`user_${socket.userId}`);
     console.log(`用户 ${socket.userId} 已连接，当前在线用户数：${onlineUsers.size}`);
   }
 
-  // ① 登录事件：手动绑定并拉取未读好友申请
   socket.on("login", async (userId) => {
     if (userId) {
       onlineUsers.set(userId, socket.id);
@@ -437,12 +434,10 @@ io.on('connection', (socket) => {
     }
   });
 
-  // ③ 好友申请 Socket 事件（实时推送）
   socket.on("friend_request", ({ fromId, toId }) => {
     console.log("收到好友申请事件", { fromId, toId });
     const socketId = onlineUsers.get(toId);
     console.log("目标socket:", socketId);
-
     if (socketId) {
       io.to(socketId).emit("friend_request_received", {
         fromId,
@@ -451,15 +446,11 @@ io.on('connection', (socket) => {
     }
   });
 
-  // ⑤ 通过好友申请 Socket 事件（新增）
   socket.on("accept_friend", async ({ requestId, fromId, toId }) => {
-    // 验证当前用户是否为接收者
     if (socket.userId !== toId) {
       return socket.emit("error", { message: "无权操作" });
     }
-
     try {
-      // 更新好友申请状态
       const updateRes = await db.query(
         "UPDATE friend_requests SET status = 'accepted' WHERE id = $1 AND to_user = $2 AND status = 'pending' RETURNING *",
         [requestId, toId]
@@ -467,21 +458,15 @@ io.on('connection', (socket) => {
       if (updateRes.rows.length === 0) {
         return socket.emit("error", { message: "申请不存在或已处理" });
       }
-
-      // 建立双向好友关系
       await db.query(
         "INSERT INTO friends (user_id, friend_id) VALUES ($1, $2), ($2, $1) ON CONFLICT DO NOTHING",
         [fromId, toId]
       );
-
-      // 通知双方
       const fromSocket = onlineUsers.get(fromId);
       if (fromSocket) {
         io.to(fromSocket).emit("friend_accepted", { friendId: toId });
       }
       socket.emit("friend_accepted", { friendId: fromId });
-
-      // 可选：同时通过 HTTP API 的兼容事件
       io.to(`user_${fromId}`).emit("friend_accepted");
       io.to(`user_${toId}`).emit("friend_accepted");
     } catch (err) {
@@ -490,7 +475,6 @@ io.on('connection', (socket) => {
     }
   });
 
-  // 私聊消息
   socket.on('private message', async (data, ack) => {
     if (!socket.userId) {
       if (typeof ack === 'function') ack({ success: false, error: '未登录' });
@@ -530,20 +514,11 @@ io.on('connection', (socket) => {
         return;
       }
 
-      const message = {
-        from_user: socket.userId,
-        to_user: parseInt(to),
-        type,
-        content: content.trim(),
-        file_name: fileName || null,
-        duration: duration || null
-      };
-
       try {
         const result = await db.query(
           `INSERT INTO messages (from_user, to_user, type, content, file_name, duration)
            VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
-          [message.from_user, message.to_user, message.type, message.content, message.file_name, message.duration]
+          [socket.userId, parseInt(to), type, content.trim(), fileName || null, duration || null]
         );
         const msg = result.rows[0];
         io.to(`user_${socket.userId}`).emit('chat message', msg);
@@ -634,6 +609,7 @@ app.get('/api/health', (req, res) => {
   res.json({ success: true, service: 'qiaoqiaohua-backend', status: 'running' });
 });
 
+// 注册（已修复邀请码验证）
 app.post('/api/register', async (req, res) => {
   const { username, password, nickname, inviteCode } = req.body;
   const trimmedPassword = password ? password.trim() : '';
@@ -654,15 +630,23 @@ app.post('/api/register', async (req, res) => {
     const userCount = await db.query('SELECT COUNT(*) FROM users');
     if (parseInt(userCount.rows[0].count) > 0) {
       if (!inviteCode) return res.json({ error: '需要邀请码' });
+
+      let codeValid = false;
       const codeCheck = await db.query('SELECT * FROM invite_codes WHERE code = $1', [inviteCode]);
-      if (codeCheck.rows.length === 0) {
-        return res.json({ error: '邀请码无效' });
+      if (codeCheck.rows.length > 0) {
+        const codeRow = codeCheck.rows[0];
+        if (codeRow.is_permanent || codeRow.used_count < codeRow.max_uses) {
+          await db.query('UPDATE invite_codes SET used_count = used_count + 1 WHERE id = $1', [codeRow.id]);
+          codeValid = true;
+        }
+      } else {
+        const userInvite = await db.query('SELECT id FROM users WHERE invite_code = $1', [inviteCode]);
+        if (userInvite.rows.length > 0) {
+          codeValid = true;
+        }
       }
-      const codeRow = codeCheck.rows[0];
-      if (!codeRow.is_permanent && codeRow.used_count >= codeRow.max_uses) {
-        return res.json({ error: '邀请码已用完' });
-      }
-      await db.query('UPDATE invite_codes SET used_count = used_count + 1 WHERE id = $1', [codeRow.id]);
+
+      if (!codeValid) return res.json({ error: '邀请码无效或已用完' });
     }
 
     const hashedPassword = await bcrypt.hash(trimmedPassword, 12);
