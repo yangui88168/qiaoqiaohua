@@ -413,32 +413,80 @@ const processedMsgIds = new Set();
 setInterval(() => processedMsgIds.clear(), 5 * 60 * 1000);
 
 io.on('connection', (socket) => {
-  // 记录在线用户（通过 session 中间件已验证 userId）
+  // 自动通过 session 绑定 onlineUsers
   if (socket.userId) {
     onlineUsers.set(socket.userId, socket.id);
     socket.join(`user_${socket.userId}`);
     console.log(`用户 ${socket.userId} 已连接，当前在线用户数：${onlineUsers.size}`);
   }
 
-  // ① 客户端主动登录绑定（冗余但允许）
-  socket.on("login", (userId) => {
+  // ① 登录事件：手动绑定并拉取未读好友申请
+  socket.on("login", async (userId) => {
     if (userId) {
       onlineUsers.set(userId, socket.id);
       console.log("在线用户表：", onlineUsers);
+      try {
+        const result = await db.query(
+          "SELECT * FROM friend_requests WHERE to_user = $1 AND status = 'pending'",
+          [userId]
+        );
+        socket.emit("pending_friend_requests", result.rows);
+      } catch (err) {
+        console.error("拉取未读好友申请失败", err);
+      }
     }
   });
 
-  // ③ 好友申请 Socket 事件
+  // ③ 好友申请 Socket 事件（实时推送）
   socket.on("friend_request", ({ fromId, toId }) => {
     console.log("收到好友申请事件", { fromId, toId });
-    const targetSocket = onlineUsers.get(toId);
-    console.log("目标socket:", targetSocket);
+    const socketId = onlineUsers.get(toId);
+    console.log("目标socket:", socketId);
 
-    if (targetSocket) {
-      io.to(targetSocket).emit("friend_request_received", {
+    if (socketId) {
+      io.to(socketId).emit("friend_request_received", {
         fromId,
         toId
       });
+    }
+  });
+
+  // ⑤ 通过好友申请 Socket 事件（新增）
+  socket.on("accept_friend", async ({ requestId, fromId, toId }) => {
+    // 验证当前用户是否为接收者
+    if (socket.userId !== toId) {
+      return socket.emit("error", { message: "无权操作" });
+    }
+
+    try {
+      // 更新好友申请状态
+      const updateRes = await db.query(
+        "UPDATE friend_requests SET status = 'accepted' WHERE id = $1 AND to_user = $2 AND status = 'pending' RETURNING *",
+        [requestId, toId]
+      );
+      if (updateRes.rows.length === 0) {
+        return socket.emit("error", { message: "申请不存在或已处理" });
+      }
+
+      // 建立双向好友关系
+      await db.query(
+        "INSERT INTO friends (user_id, friend_id) VALUES ($1, $2), ($2, $1) ON CONFLICT DO NOTHING",
+        [fromId, toId]
+      );
+
+      // 通知双方
+      const fromSocket = onlineUsers.get(fromId);
+      if (fromSocket) {
+        io.to(fromSocket).emit("friend_accepted", { friendId: toId });
+      }
+      socket.emit("friend_accepted", { friendId: fromId });
+
+      // 可选：同时通过 HTTP API 的兼容事件
+      io.to(`user_${fromId}`).emit("friend_accepted");
+      io.to(`user_${toId}`).emit("friend_accepted");
+    } catch (err) {
+      console.error("接受好友申请失败", err);
+      socket.emit("error", { message: "服务器错误" });
     }
   });
 
@@ -578,17 +626,14 @@ io.on('connection', (socket) => {
 
 // ========== API 路由 ==========
 
-// 根路由 - 返回前端页面
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-// 健康检查
 app.get('/api/health', (req, res) => {
   res.json({ success: true, service: 'qiaoqiaohua-backend', status: 'running' });
 });
 
-// 注册
 app.post('/api/register', async (req, res) => {
   const { username, password, nickname, inviteCode } = req.body;
   const trimmedPassword = password ? password.trim() : '';
@@ -643,7 +688,6 @@ app.post('/api/register', async (req, res) => {
   }
 });
 
-// 登录
 app.post('/api/login', loginLimiter, async (req, res) => {
   const { username, password } = req.body;
   try {
@@ -660,7 +704,6 @@ app.post('/api/login', loginLimiter, async (req, res) => {
   }
 });
 
-// 获取当前用户
 app.get('/api/me', auth, async (req, res) => {
   try {
     const result = await db.query(
@@ -682,13 +725,11 @@ app.get('/api/me', auth, async (req, res) => {
   }
 });
 
-// 退出登录
 app.post('/api/logout', (req, res) => {
   req.session.destroy();
   res.json({ success: true });
 });
 
-// 搜索用户
 app.get('/api/search', auth, searchLimiter, async (req, res) => {
   const q = req.query.q?.toLowerCase() || '';
   try {
@@ -706,7 +747,6 @@ app.get('/api/search', auth, searchLimiter, async (req, res) => {
   }
 });
 
-// 好友列表
 app.get('/api/friends', auth, async (req, res) => {
   try {
     const result = await db.query(
@@ -722,7 +762,6 @@ app.get('/api/friends', auth, async (req, res) => {
   }
 });
 
-// 好友请求（HTTP API）
 app.post('/api/friend-request', auth, friendRequestLimiter, async (req, res) => {
   const { to, toUsername, message } = req.body;
   try {
@@ -761,7 +800,6 @@ app.post('/api/friend-request', auth, friendRequestLimiter, async (req, res) => 
       [req.userId, targetId, message ? sanitizeText(message) : '请求添加好友']
     );
 
-    // 通知对方（兼容两种事件名）
     const targetSid = onlineUsers.get(targetId);
     if (targetSid) {
       io.to(targetSid).emit('new_friend_request');
@@ -775,7 +813,6 @@ app.post('/api/friend-request', auth, friendRequestLimiter, async (req, res) => 
   }
 });
 
-// 通过邀请码添加
 app.post('/api/add-by-invite', auth, async (req, res) => {
   const { inviteCode } = req.body;
   try {
@@ -828,7 +865,6 @@ app.post('/api/add-by-invite', auth, async (req, res) => {
   }
 });
 
-// 获取好友请求列表
 app.get('/api/friend-requests', auth, async (req, res) => {
   try {
     const result = await db.query(
@@ -847,7 +883,6 @@ app.get('/api/friend-requests', auth, async (req, res) => {
   }
 });
 
-// 接受好友请求
 app.post('/api/friend-request/:id/accept', auth, async (req, res) => {
   try {
     const reqObj = await db.query(
@@ -869,7 +904,6 @@ app.post('/api/friend-request/:id/accept', auth, async (req, res) => {
   }
 });
 
-// 拒绝好友请求
 app.post('/api/friend-request/:id/reject', auth, async (req, res) => {
   try {
     const reqObj = await db.query(
@@ -884,7 +918,6 @@ app.post('/api/friend-request/:id/reject', auth, async (req, res) => {
   }
 });
 
-// 删除好友
 app.post('/api/friend-remove', auth, async (req, res) => {
   const { friendId } = req.body;
   const fid = parseInt(friendId);
@@ -914,7 +947,6 @@ app.post('/api/friend-remove', auth, async (req, res) => {
   }
 });
 
-// 创建群组
 app.post('/api/groups', auth, async (req, res) => {
   const { name } = req.body;
   if (!name || name.trim().length === 0) return res.json({ error: '群名称不能为空' });
@@ -941,7 +973,6 @@ app.post('/api/groups', auth, async (req, res) => {
   }
 });
 
-// 获取群组列表
 app.get('/api/groups', auth, async (req, res) => {
   try {
     const result = await db.query(
@@ -957,7 +988,6 @@ app.get('/api/groups', auth, async (req, res) => {
   }
 });
 
-// 获取私聊消息
 app.get('/api/messages/friend/:friendId', auth, async (req, res) => {
   const friendId = parseInt(req.params.friendId);
   try {
@@ -988,7 +1018,6 @@ app.get('/api/messages/friend/:friendId', auth, async (req, res) => {
   }
 });
 
-// 获取群聊消息
 app.get('/api/messages/group/:groupId', auth, async (req, res) => {
   const groupId = parseInt(req.params.groupId);
   try {
@@ -1018,7 +1047,6 @@ app.get('/api/messages/group/:groupId', auth, async (req, res) => {
   }
 });
 
-// 删除消息
 app.post('/api/message/delete', auth, async (req, res) => {
   const { messageId } = req.body;
   try {
@@ -1051,7 +1079,6 @@ app.post('/api/message/delete', auth, async (req, res) => {
   }
 });
 
-// 清空聊天
 app.post('/api/chat/clear', auth, async (req, res) => {
   const { chatType, chatId } = req.body;
   if (!chatType || !chatId) return res.json({ error: '参数错误' });
@@ -1095,7 +1122,6 @@ app.post('/api/chat/clear', auth, async (req, res) => {
   }
 });
 
-// 修改密码
 app.post('/api/change-password', auth, async (req, res) => {
   const { oldPassword, newPassword } = req.body;
   const newPwd = newPassword ? newPassword.trim() : '';
@@ -1115,7 +1141,6 @@ app.post('/api/change-password', auth, async (req, res) => {
   }
 });
 
-// 上传头像
 app.post('/api/avatar/upload', auth, (req, res) => {
   upload.single('avatar')(req, res, async (err) => {
     if (err) {
@@ -1153,7 +1178,6 @@ app.post('/api/avatar/upload', auth, (req, res) => {
   });
 });
 
-// 上传聊天背景
 app.post('/api/background/upload', auth, (req, res) => {
   upload.single('background')(req, res, async (err) => {
     if (err) {
@@ -1187,7 +1211,6 @@ app.post('/api/background/upload', auth, (req, res) => {
   });
 });
 
-// 通用文件上传
 app.post('/api/upload', auth, (req, res) => {
   upload.single('file')(req, res, async (err) => {
     if (err) {
@@ -1228,7 +1251,6 @@ app.post('/api/upload', auth, (req, res) => {
   });
 });
 
-// 文件访问权限验证
 app.get('/api/file/:name', auth, async (req, res) => {
   const filename = path.basename(req.params.name);
   const filePath = path.join(UPLOAD_DIR, filename);
@@ -1267,7 +1289,6 @@ app.get('/api/file/:name', auth, async (req, res) => {
   }
 });
 
-// 通知列表
 app.get('/api/notifications', auth, async (req, res) => {
   try {
     const result = await db.query(
@@ -1281,7 +1302,6 @@ app.get('/api/notifications', auth, async (req, res) => {
   }
 });
 
-// 更新个人资料
 app.post('/api/profile', auth, async (req, res) => {
   const { nickname, gender, region, signature } = req.body;
   try {
@@ -1304,7 +1324,6 @@ app.post('/api/profile', auth, async (req, res) => {
   }
 });
 
-// 生成邀请码
 app.post('/api/invite-codes', auth, async (req, res) => {
   const { max_uses, is_permanent } = req.body;
   try {
@@ -1325,7 +1344,6 @@ app.post('/api/invite-codes', auth, async (req, res) => {
   }
 });
 
-// 查询邀请码
 app.get('/api/invite-codes/:code', async (req, res) => {
   try {
     const result = await db.query(
