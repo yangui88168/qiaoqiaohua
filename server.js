@@ -36,7 +36,7 @@ const ALLOWED_ORIGINS = process.env.ALLOWED_ORIGIN
   ? process.env.ALLOWED_ORIGIN.split(',').map(o => o.trim())
   : true;
 
-app.use(helmet({ contentSecurityPolicy: false })); // 未来启用 CSP 可提高安全性
+app.use(helmet({ contentSecurityPolicy: false }));
 app.use(compression());
 app.use(cors({
   origin: ALLOWED_ORIGINS,
@@ -61,13 +61,12 @@ const friendRequestLimiter = rateLimit({
 });
 
 // ========== 目录与 JSON 双保存配置 ==========
-const DATA_FILE = path.join(__dirname, 'data', 'data.json'); // 问题2 修正路径
+const DATA_FILE = path.join(__dirname, 'data', 'data.json');
 
-// 内存备份（实际数据以 PostgreSQL 为准，JSON 仅作紧急恢复）
 let users = new Map();
 const usernameIndex = new Map();
 const inviteIndex = new Map();
-const fileOwners = new Map();        // 启动时从 uploaded_files 表恢复
+const fileOwners = new Map();
 let messages = [];
 let friendRequests = [];
 let groups = [];
@@ -179,7 +178,6 @@ if (!fs.existsSync(UPLOAD_DIR)) {
   fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 }
 
-// 问题3：调整文件大小限制
 const ALLOWED_FILE_TYPES = {
   'jpg': { ext: '.jpg', mime: 'image/jpeg', maxSize: 5 * 1024 * 1024 },
   'jpeg': { ext: '.jpeg', mime: 'image/jpeg', maxSize: 5 * 1024 * 1024 },
@@ -213,7 +211,7 @@ const storage = multer.diskStorage({
 
 const upload = multer({
   storage,
-  limits: { fileSize: 15 * 1024 * 1024 }, // 15 MB 总限制
+  limits: { fileSize: 15 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
     const info = getFileTypeInfo(file.originalname);
     if (!info) return cb(new Error('不支持的文件类型'));
@@ -221,7 +219,6 @@ const upload = multer({
   }
 });
 
-// 问题4：扩展魔数校验
 function validateMagicNumber(filePath, expectedType) {
   const fd = fs.openSync(filePath, 'r');
   const buffer = Buffer.alloc(12);
@@ -239,18 +236,19 @@ function validateMagicNumber(filePath, expectedType) {
     'webp': '52494646',
     'pdf': '255044462d',
     'zip': '504b0304',
-    'mp3': '494433',   // ID3 tag
-    'mp4': '000000',   // 允许空头，更严格可用 ftyp 但跳过
-    'webm': '1a45df',  // webm 头
-    'wav': '524946',   // RIFF
-    'ogg': '4f6767'    // OggS
+    'mp3': '494433',
+    'mp4': '000000',
+    'webm': '1a45df',
+    'wav': '524946',
+    'ogg': '4f6767'
   };
   const expectedHex = signatures[expectedType];
-  if (!expectedHex) return true; // txt 等不校验
+  if (!expectedHex) return true;
   return hex.startsWith(expectedHex);
 }
 
-app.use(express.static('public'));
+// 静态文件服务 - 使用绝对路径
+app.use(express.static(path.join(__dirname, 'public')));
 
 // ========== 在线用户 Map ==========
 const onlineUsers = new Map();
@@ -343,14 +341,12 @@ async function initDB() {
     );
   `);
 
-  // 插入超级邀请码 20040705（永久，无限使用次数）
   await db.query(`
     INSERT INTO invite_codes (code, creator, is_permanent, max_uses, used_count)
     VALUES ('20040705', NULL, true, 99999, 0)
     ON CONFLICT (code) DO NOTHING;
   `);
 
-  // 问题5：从数据库恢复 fileOwners
   try {
     const { rows } = await db.query('SELECT filename, owner_id FROM uploaded_files');
     rows.forEach(r => fileOwners.set(r.filename, r.owner_id));
@@ -549,8 +545,13 @@ io.on('connection', (socket) => {
 
 // ========== API 路由 ==========
 
-// 健康检查
+// 根路由 - 返回前端页面
 app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
+// 健康检查
+app.get('/api/health', (req, res) => {
   res.json({ success: true, service: 'qiaoqiaohua-backend', status: 'running' });
 });
 
@@ -588,7 +589,6 @@ app.post('/api/register', async (req, res) => {
 
     const hashedPassword = await bcrypt.hash(trimmedPassword, 12);
     let finalNickname = sanitizeText((nickname || username).substring(0, 30));
-    // 问题6：邀请码碰撞检测
     let newInviteCode;
     while (true) {
       newInviteCode = crypto.randomBytes(3).toString('hex').toUpperCase();
@@ -1102,7 +1102,7 @@ app.post('/api/avatar/upload', auth, (req, res) => {
       await db.query('UPDATE users SET avatar = $1 WHERE id = $2', [url, req.userId]);
       await db.query('INSERT INTO uploaded_files (filename, owner_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
         [req.file.filename, req.userId]);
-      fileOwners.set(req.file.filename, req.userId);  // 更新内存
+      fileOwners.set(req.file.filename, req.userId);
       res.json({ avatar: url });
     } catch (e) {
       console.error(e);
@@ -1166,7 +1166,6 @@ app.post('/api/upload', auth, (req, res) => {
       return res.json({ error: `文件过大，${ext} 最大允许 ${Math.round(typeInfo.maxSize / 1024 / 1024)}MB` });
     }
 
-    // 问题4：对全部可识别类型进行魔数校验
     const needMagic = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'pdf', 'zip', 'mp3', 'mp4', 'webm', 'wav', 'ogg'];
     if (needMagic.includes(ext)) {
       if (!validateMagicNumber(req.file.path, ext)) {
@@ -1264,7 +1263,7 @@ app.post('/api/profile', auth, async (req, res) => {
   }
 });
 
-// 生成邀请码（问题6：确保唯一）
+// 生成邀请码
 app.post('/api/invite-codes', auth, async (req, res) => {
   const { max_uses, is_permanent } = req.body;
   try {
