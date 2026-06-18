@@ -247,14 +247,23 @@ function validateMagicNumber(filePath, expectedType) {
   return hex.startsWith(expectedHex);
 }
 
-// 静态文件服务 - 使用绝对路径
+// 静态文件服务 - 绝对路径
 app.use(express.static(path.join(__dirname, 'public')));
 
 // ========== 在线用户 Map ==========
 const onlineUsers = new Map();
 
-// ========== 数据库初始化建表 ==========
+// ========== 数据库初始化（含 session 表） ==========
 async function initDB() {
+  // 显式创建 session 表，防止 connect-pg-simple 创建失败
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS "session" (
+      sid VARCHAR PRIMARY KEY,
+      sess JSON NOT NULL,
+      expire TIMESTAMP NOT NULL
+    );
+  `);
+
   await db.query(`
     CREATE TABLE IF NOT EXISTS users (
       id SERIAL PRIMARY KEY,
@@ -341,12 +350,14 @@ async function initDB() {
     );
   `);
 
+  // 插入超级邀请码
   await db.query(`
     INSERT INTO invite_codes (code, creator, is_permanent, max_uses, used_count)
     VALUES ('20040705', NULL, true, 99999, 0)
     ON CONFLICT (code) DO NOTHING;
   `);
 
+  // 恢复文件所有者
   try {
     const { rows } = await db.query('SELECT filename, owner_id FROM uploaded_files');
     rows.forEach(r => fileOwners.set(r.filename, r.owner_id));
@@ -508,7 +519,7 @@ io.on('connection', (socket) => {
     }
   });
 
-  // WebRTC 信令
+  // WebRTC 信令（保持不变）
   socket.on('call_offer', (data) => {
     const { to, offer } = data;
     if (!to || !offer) return;
