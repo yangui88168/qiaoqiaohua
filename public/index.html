@@ -73,6 +73,7 @@
       border-top:1px solid var(--border);
       background:#fff;
       gap:8px;
+      position:relative;
     }
     .msg-input-area input { flex:1; padding:10px 16px; border:1px solid var(--border); border-radius:24px; outline:none; }
     .attach-btn { background:var(--primary-light); border:none; border-radius:50%; width:36px; height:36px; font-size:18px; cursor:pointer; }
@@ -84,6 +85,10 @@
     .card { background:#fff; border-radius:16px; padding:24px; border:1px solid var(--border); margin-bottom:16px; }
     .section-title { font-size:14px; color:var(--text-secondary); padding:8px 0; font-weight:500; }
     .avatar-sm { width:36px; height:36px; border-radius:50%; object-fit:cover; }
+
+    #video-call-container { position:relative; padding:10px; background:#000; border-radius:12px; margin:10px; }
+    #remote-video { width:100%; max-height:300px; border-radius:8px; background:#222; }
+    #local-video { width:120px; position:absolute; bottom:20px; right:20px; border-radius:8px; border:2px solid white; background:#333; }
 
     @media (max-width:768px) {
       .sidebar { display:none; }
@@ -146,7 +151,6 @@
     function clearUnread(key) { unreadCounts[key]=0; }
     function escapeHtml(text) { const div = document.createElement('div'); div.textContent = text; return div.innerHTML; }
 
-    // 标准化消息：补上 from 字段
     function normalizeMessage(msg) {
       if (!msg) return msg;
       if (msg.from === undefined && msg.from_user !== undefined) {
@@ -197,10 +201,9 @@
         showFriendRequestPopup(data);
       });
 
-      // 接收消息（仅来自好友的，自己发送的不再通过此事件）
       socket.on('chat message', (msg) => {
         normalizeMessage(msg);
-        if (msg.from === currentUser.id) return;   // 自己的消息已在ACK处理
+        if (msg.from === currentUser.id) return;
 
         const key = msg.toType==='group'?`group_${msg.to}`:`friend_${msg.from}`;
         if(!messagesCache[key]) messagesCache[key]=[];
@@ -209,7 +212,7 @@
         }
         if(messagesCache[key].length > 500) messagesCache[key].shift();
 
-        lastMessages[key] = (msg.type==='text'?msg.content:(msg.type==='image'?'[图片]':msg.type==='file'?'[文件]':msg.type==='voice'?'[语音]':'[视频]'));
+        lastMessages[key] = (msg.type==='text'?msg.content:(msg.type==='image'?'[图片]':msg.type==='file'?'[文件]':msg.type==='voice'?'[语音]':msg.type==='emoji'?'[表情]':'[视频]'));
         const isActive = selectedChat && ((selectedChat.type==='friend' && key===`friend_${selectedChat.id}`) || (selectedChat.type==='group' && key===`group_${selectedChat.id}`));
         if(!isActive) incUnread(key);
         else { clearUnread(key); renderChatMessages(); }
@@ -244,7 +247,7 @@
       });
 
       socket.on('call_offer', async ({from, offer}) => {
-        if(confirm(`用户 ${from} 邀请你进行通话，是否接受？`)){
+        if(confirm(`用户 ${from} 邀请你进行视频通话，是否接受？`)){
           callInfo = { peerId: from, isCaller: false };
           await startCall(false, offer);
         } else {
@@ -285,12 +288,21 @@
 
     async function startCall(isCaller, remoteOffer){
       try {
-        localStream = await navigator.mediaDevices.getUserMedia({audio:true, video:false});
+        localStream = await navigator.mediaDevices.getUserMedia({audio:true, video:true});
       } catch(e) {
-        alert('无法获取麦克风权限');
+        alert('无法获取摄像头/麦克风权限');
         endCall(false);
         return;
       }
+
+      // 显示本地视频
+      const localVideo = document.getElementById('local-video');
+      const container = document.getElementById('video-call-container');
+      if (localVideo && container) {
+        container.style.display = 'block';
+        localVideo.srcObject = localStream;
+      }
+
       peerConnection = new RTCPeerConnection({
         iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
       });
@@ -303,6 +315,12 @@
       };
 
       peerConnection.ontrack = e => {
+        const remoteVideo = document.getElementById('remote-video');
+        const vcContainer = document.getElementById('video-call-container');
+        if (remoteVideo && vcContainer) {
+          vcContainer.style.display = 'block';
+          remoteVideo.srcObject = e.streams[0];
+        }
         if(!remoteAudio) {
           remoteAudio = new Audio();
           remoteAudio.autoplay = true;
@@ -343,6 +361,8 @@
       callInfo = null;
       const hangupBtn = document.getElementById('hangup-btn');
       if(hangupBtn) hangupBtn.style.display = 'none';
+      const container = document.getElementById('video-call-container');
+      if (container) container.style.display = 'none';
     }
 
     async function fetchFriends(){ const d=await api('/api/friends'); friends=d.friends||[]; }
@@ -656,6 +676,10 @@
         </div>
         <div class="chat-messages-container" id="chat-messages-container" style="${currentUser.chatBackground ? `background-image:url('${getFileUrl(currentUser.chatBackground)}');background-size:cover;` : ''}">
           <ul class="chat-messages" id="chat-msgs"></ul>
+          <div id="video-call-container" style="display:none;">
+            <video id="remote-video" autoplay playsinline></video>
+            <video id="local-video" autoplay playsinline muted></video>
+          </div>
         </div>
         <div class="msg-input-area">
           <button class="emoji-btn" id="emoji-btn" title="表情">😀</button>
@@ -677,7 +701,7 @@
       });
       document.getElementById('attach-btn').addEventListener('click', ()=> document.getElementById('file-input').click());
       document.getElementById('file-input').addEventListener('change', handleFileUpload);
-      document.getElementById('emoji-btn').addEventListener('click', ()=>{});
+      document.getElementById('emoji-btn').addEventListener('click', ()=>{ showEmojiPicker(); });
       document.getElementById('voice-record-btn').addEventListener('click', ()=>{});
       document.getElementById('call-voice-btn').addEventListener('click', ()=>{
         if(!selectedChat || selectedChat.type!=='friend') return alert('仅支持好友语音通话');
@@ -685,7 +709,9 @@
         startCall(true);
       });
       document.getElementById('call-video-btn').addEventListener('click', ()=>{
-        alert('视频通话功能即将上线');
+        if(!selectedChat || selectedChat.type!=='friend') return alert('仅支持好友视频通话');
+        callInfo = { peerId: selectedChat.id, isCaller: true };
+        startCall(true);
       });
       document.getElementById('hangup-btn').addEventListener('click', ()=>{ endCall(true); });
       document.getElementById('clear-chat-btn').addEventListener('click', async ()=>{
@@ -742,7 +768,14 @@
           video.style.maxWidth = '100%';
           li.appendChild(video);
         } else if(m.type==='emoji'){
-          // 预留
+          // 表情消息：大号显示
+          const span = document.createElement('span');
+          span.style.fontSize = '48px';
+          span.style.lineHeight = '1';
+          span.textContent = m.content;
+          li.style.background = 'transparent';
+          li.style.padding = '4px';
+          li.appendChild(span);
         }
         const delBtn = document.createElement('button');
         delBtn.className = 'msg-delete-btn';
@@ -776,9 +809,12 @@
       const content = input.value.trim();
       input.value = '';
 
+      // 自动判断是否为表情消息
+      const emojiRegex = /^[\p{Emoji}\s]+$/u;
+      const msgType = emojiRegex.test(content) ? 'emoji' : 'text';
+
       const clientMsgId = Date.now() + '_' + Math.random().toString(36).substr(2, 9);
 
-      // 乐观更新
       if (selectedChat) {
         const key = selectedChat.type==='friend'?`friend_${selectedChat.id}`:`group_${selectedChat.id}`;
         if (!messagesCache[key]) messagesCache[key] = [];
@@ -787,7 +823,7 @@
           from: currentUser.id,
           to: selectedChat.type==='friend'?selectedChat.id:null,
           toType: selectedChat.type,
-          type: 'text',
+          type: msgType,
           content: content,
           created_at: new Date().toISOString()
         };
@@ -804,14 +840,13 @@
         clientMsgId,
         to: selectedChat.id,
         toType: selectedChat.type,
-        type: 'text',
+        type: msgType,
         content: content
       }, (ack) => {
         ackReceived = true;
         clearTimeout(timeoutId);
         isSending = false;
         if (ack && ack.success && ack.msg) {
-          // 标准化服务器返回的消息，补上 from 字段
           const realMsg = normalizeMessage(ack.msg);
           if (selectedChat) {
             const key = selectedChat.type==='friend'?`friend_${selectedChat.id}`:`group_${selectedChat.id}`;
@@ -820,7 +855,6 @@
               if (tempIndex !== -1) {
                 messagesCache[key][tempIndex] = realMsg;
               } else {
-                // 确保不重复
                 if (!messagesCache[key].some(m => m.id === realMsg.id)) {
                   messagesCache[key].push(realMsg);
                 }
@@ -832,7 +866,6 @@
           }
         } else {
           if (ack && ack.error) alert(ack.error);
-          // 失败，移除临时消息
           if (selectedChat) {
             const key = selectedChat.type==='friend'?`friend_${selectedChat.id}`:`group_${selectedChat.id}`;
             if (messagesCache[key]) {
@@ -858,6 +891,71 @@
           }
         }
       }, 5000);
+    }
+
+    // 表情选择器
+    function showEmojiPicker() {
+      const input = document.getElementById('msg-input');
+      if (!input) return;
+
+      const emojis = [
+        '😀', '😂', '🤣', '😊', '😍', '🤩', '😘', '😜',
+        '😎', '🤔', '😴', '😭', '🥺', '😡', '👍', '👎',
+        '👏', '🙌', '💪', '❤️', '🔥', '⭐', '🎉', '💯',
+        '✅', '❌', '⚠️', '💡', '📌', '🎵', '🌈', '🍕'
+      ];
+
+      const existing = document.getElementById('emoji-picker');
+      if (existing) {
+        existing.remove();
+        return;
+      }
+
+      const picker = document.createElement('div');
+      picker.id = 'emoji-picker';
+      picker.style.cssText = `
+        position: absolute; bottom: 70px; left: 60px;
+        background: white; border: 1px solid var(--border);
+        border-radius: 12px; padding: 8px; display: flex;
+        flex-wrap: wrap; gap: 4px; max-width: 280px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.15); z-index: 999;
+      `;
+
+      emojis.forEach(emoji => {
+        const btn = document.createElement('button');
+        btn.textContent = emoji;
+        btn.style.cssText = `
+          font-size: 24px; width: 36px; height: 36px;
+          border: none; background: transparent; cursor: pointer;
+          border-radius: 6px;
+        `;
+        btn.addEventListener('click', () => {
+          input.value += emoji;
+          input.focus();
+          picker.remove();
+        });
+        btn.addEventListener('mouseenter', () => {
+          btn.style.background = '#f0f0f0';
+        });
+        btn.addEventListener('mouseleave', () => {
+          btn.style.background = 'transparent';
+        });
+        picker.appendChild(btn);
+      });
+
+      const inputArea = document.querySelector('.msg-input-area');
+      if (inputArea) {
+        inputArea.appendChild(picker);
+      }
+
+      setTimeout(() => {
+        document.addEventListener('click', function close(e) {
+          if (!picker.contains(e.target) && e.target.id !== 'emoji-btn') {
+            picker.remove();
+            document.removeEventListener('click', close);
+          }
+        });
+      }, 100);
     }
 
     async function handleFileUpload(e){
