@@ -86,9 +86,38 @@
     .section-title { font-size:14px; color:var(--text-secondary); padding:8px 0; font-weight:500; }
     .avatar-sm { width:36px; height:36px; border-radius:50%; object-fit:cover; }
 
-    #video-call-container { position:relative; padding:10px; background:#000; border-radius:12px; margin:10px; }
-    #remote-video { width:100%; max-height:300px; border-radius:8px; background:#222; }
-    #local-video { width:120px; position:absolute; bottom:20px; right:20px; border-radius:8px; border:2px solid white; background:#333; }
+    /* 视频通话弹窗 */
+    .video-call-overlay {
+      display:none; position:fixed; top:0; left:0; width:100%; height:100%;
+      background:rgba(0,0,0,0.9); z-index:1000; flex-direction:column;
+      align-items:center; justify-content:center;
+    }
+    .video-call-overlay.active { display:flex; }
+    .video-remote { width:100%; height:100%; object-fit:cover; position:absolute; top:0; left:0; }
+    .video-local { width:120px; height:160px; object-fit:cover; position:absolute; bottom:80px; right:20px; border-radius:12px; border:2px solid white; background:#333; z-index:2; }
+    .video-controls { position:absolute; bottom:30px; left:50%; transform:translateX(-50%); display:flex; gap:20px; z-index:3; }
+    .video-controls button { width:50px; height:50px; border-radius:50%; border:none; font-size:22px; cursor:pointer; color:white; }
+    .btn-hangup { background:#ef4444; }
+    .btn-mute { background:#555; }
+    .btn-mute.muted { background:#ef4444; }
+    .btn-camera { background:#555; }
+    .btn-camera.off { background:#ef4444; }
+    .btn-speaker { background:#555; }
+
+    /* 录音提示 */
+    .recording-tip {
+      display:none; position:fixed; top:50%; left:50%; transform:translate(-50%,-50%);
+      background:rgba(0,0,0,0.8); color:white; padding:20px 30px; border-radius:16px;
+      font-size:16px; z-index:999; text-align:center; align-items:center; gap:10px;
+    }
+    .recording-tip.active { display:flex; }
+    .recording-wave { display:flex; align-items:center; gap:2px; height:30px; }
+    .recording-wave span { width:3px; background:#ef4444; border-radius:2px; animation:pulse 0.8s infinite alternate; }
+    .recording-wave span:nth-child(2) { animation-delay:0.1s; }
+    .recording-wave span:nth-child(3) { animation-delay:0.2s; }
+    .recording-wave span:nth-child(4) { animation-delay:0.3s; }
+    .recording-wave span:nth-child(5) { animation-delay:0.4s; }
+    @keyframes pulse { 0% { height:8px; } 100% { height:30px; } }
 
     @media (max-width:768px) {
       .sidebar { display:none; }
@@ -100,11 +129,33 @@
       .chat-window { display:none; }
       .chat-window.mobile-active { display:flex; }
       .conversation-list.mobile-hidden { display:none; }
+      .video-local { width:80px; height:110px; bottom:100px; right:10px; }
     }
   </style>
 </head>
 <body>
 <div id="app"></div>
+
+<!-- 视频通话弹窗 -->
+<div class="video-call-overlay" id="videoCallOverlay">
+  <video id="remoteVideo" class="video-remote" autoplay playsinline></video>
+  <video id="localVideo" class="video-local" autoplay playsinline muted></video>
+  <div class="video-controls">
+    <button class="btn-mute" id="btnMute" title="静音">🎤</button>
+    <button class="btn-camera" id="btnCamera" title="摄像头">📷</button>
+    <button class="btn-speaker" id="btnSpeaker" title="扬声器">🔊</button>
+    <button class="btn-hangup" id="btnHangup" title="挂断">📞</button>
+  </div>
+</div>
+
+<!-- 录音提示 -->
+<div class="recording-tip" id="recordingTip">
+  <div class="recording-wave">
+    <span></span><span></span><span></span><span></span><span></span>
+  </div>
+  <span style="margin-left:10px;">松开发送，上滑取消</span>
+</div>
+
 <script src="/socket.io/socket.io.js"></script>
 <script>
   (function() {
@@ -113,6 +164,10 @@
     let localStream = null, peerConnection = null, remoteAudio = null;
     let callInfo = null;
     let isSending = false;
+
+    // 语音录制相关
+    let mediaRecorder = null, audioChunks = [], recordingStartTime = 0, recordingTimer = null;
+    let isRecording = false, isVoiceMode = false;
 
     const API_BASE = '';
 
@@ -248,7 +303,7 @@
 
       socket.on('call_offer', async ({from, offer}) => {
         if(confirm(`用户 ${from} 邀请你进行视频通话，是否接受？`)){
-          callInfo = { peerId: from, isCaller: false };
+          callInfo = { peerId: from, isCaller: false, isVideo: true };
           await startCall(false, offer);
         } else {
           socket.emit('call_reject', {to:from});
@@ -295,13 +350,11 @@
         return;
       }
 
-      // 显示本地视频
-      const localVideo = document.getElementById('local-video');
-      const container = document.getElementById('video-call-container');
-      if (localVideo && container) {
-        container.style.display = 'block';
-        localVideo.srcObject = localStream;
-      }
+      // 显示视频弹窗
+      const overlay = document.getElementById('videoCallOverlay');
+      const localVideo = document.getElementById('localVideo');
+      if (overlay) overlay.classList.add('active');
+      if (localVideo) localVideo.srcObject = localStream;
 
       peerConnection = new RTCPeerConnection({
         iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
@@ -315,10 +368,8 @@
       };
 
       peerConnection.ontrack = e => {
-        const remoteVideo = document.getElementById('remote-video');
-        const vcContainer = document.getElementById('video-call-container');
-        if (remoteVideo && vcContainer) {
-          vcContainer.style.display = 'block';
+        const remoteVideo = document.getElementById('remoteVideo');
+        if (remoteVideo) {
           remoteVideo.srcObject = e.streams[0];
         }
         if(!remoteAudio) {
@@ -329,9 +380,6 @@
         remoteAudio.play().catch(console.error);
       };
 
-      const hangupBtn = document.getElementById('hangup-btn');
-      if(hangupBtn) hangupBtn.style.display = 'block';
-
       if(isCaller){
         const offer = await peerConnection.createOffer();
         await peerConnection.setLocalDescription(offer);
@@ -341,6 +389,45 @@
         const answer = await peerConnection.createAnswer();
         await peerConnection.setLocalDescription(answer);
         socket.emit('call_answer', {to: callInfo.peerId, answer});
+      }
+
+      // 视频控制按钮
+      setupVideoControls();
+    }
+
+    function setupVideoControls() {
+      const btnMute = document.getElementById('btnMute');
+      const btnCamera = document.getElementById('btnCamera');
+      const btnHangup = document.getElementById('btnHangup');
+
+      if (btnMute) {
+        btnMute.onclick = () => {
+          if (localStream) {
+            const audioTrack = localStream.getAudioTracks()[0];
+            if (audioTrack) {
+              audioTrack.enabled = !audioTrack.enabled;
+              btnMute.classList.toggle('muted', !audioTrack.enabled);
+              btnMute.textContent = audioTrack.enabled ? '🎤' : '🔇';
+            }
+          }
+        };
+      }
+
+      if (btnCamera) {
+        btnCamera.onclick = () => {
+          if (localStream) {
+            const videoTrack = localStream.getVideoTracks()[0];
+            if (videoTrack) {
+              videoTrack.enabled = !videoTrack.enabled;
+              btnCamera.classList.toggle('off', !videoTrack.enabled);
+              btnCamera.textContent = videoTrack.enabled ? '📷' : '📸';
+            }
+          }
+        };
+      }
+
+      if (btnHangup) {
+        btnHangup.onclick = () => endCall(true);
       }
     }
 
@@ -359,10 +446,86 @@
       localStream = null;
       peerConnection = null;
       callInfo = null;
-      const hangupBtn = document.getElementById('hangup-btn');
-      if(hangupBtn) hangupBtn.style.display = 'none';
-      const container = document.getElementById('video-call-container');
-      if (container) container.style.display = 'none';
+
+      const overlay = document.getElementById('videoCallOverlay');
+      if (overlay) overlay.classList.remove('active');
+      const remoteVideo = document.getElementById('remoteVideo');
+      const localVideo = document.getElementById('localVideo');
+      if (remoteVideo) remoteVideo.srcObject = null;
+      if (localVideo) localVideo.srcObject = null;
+    }
+
+    // ===== 语音录制功能 =====
+    async function startVoiceRecording() {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+        audioChunks = [];
+
+        mediaRecorder.ondataavailable = (e) => {
+          if (e.data.size > 0) audioChunks.push(e.data);
+        };
+
+        mediaRecorder.onstop = async () => {
+          stream.getTracks().forEach(t => t.stop());
+          const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+          const duration = Math.round((Date.now() - recordingStartTime) / 1000);
+
+          if (duration < 1) return; // 太短，忽略
+
+          // 上传音频文件
+          const fd = new FormData();
+          fd.append('file', audioBlob, `voice_${Date.now()}.webm`);
+          const res = await fetch('/api/upload', { method: 'POST', body: fd, credentials: 'include' });
+          const data = await res.json();
+
+          if (data.url && selectedChat && socket) {
+            const clientMsgId = Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+            socket.emit('private message', {
+              clientMsgId,
+              to: selectedChat.id,
+              toType: selectedChat.type,
+              type: 'voice',
+              content: data.url,
+              fileName: '语音消息',
+              duration: duration
+            }, (ack) => {
+              if (!ack || !ack.success) alert(ack?.error || '语音发送失败');
+            });
+          }
+        };
+
+        mediaRecorder.start();
+        recordingStartTime = Date.now();
+        isRecording = true;
+
+        // 显示录音动画
+        const tip = document.getElementById('recordingTip');
+        if (tip) tip.classList.add('active');
+
+        // 更新计时器
+        recordingTimer = setInterval(() => {
+          const elapsed = Math.round((Date.now() - recordingStartTime) / 1000);
+          const tipText = tip?.querySelector('span:last-child');
+          if (tipText) tipText.textContent = `录音中 ${elapsed}s  松开发送`;
+        }, 500);
+
+      } catch (e) {
+        alert('无法获取麦克风权限');
+      }
+    }
+
+    function stopVoiceRecording() {
+      if (!isRecording) return;
+      isRecording = false;
+
+      const tip = document.getElementById('recordingTip');
+      if (tip) tip.classList.remove('active');
+      if (recordingTimer) clearInterval(recordingTimer);
+
+      if (mediaRecorder && mediaRecorder.state === 'recording') {
+        mediaRecorder.stop();
+      }
     }
 
     async function fetchFriends(){ const d=await api('/api/friends'); friends=d.friends||[]; }
@@ -671,15 +834,10 @@
           <span>${escapeHtml(title)}</span>
           <button class="icon-btn" id="call-voice-btn" title="语音通话">📞</button>
           <button class="icon-btn" id="call-video-btn" title="视频通话">📹</button>
-          <button class="icon-btn" id="hangup-btn" title="挂断" style="display:none;">❌挂断</button>
           <button class="icon-btn" id="clear-chat-btn" title="清空聊天">🗑️</button>
         </div>
         <div class="chat-messages-container" id="chat-messages-container" style="${currentUser.chatBackground ? `background-image:url('${getFileUrl(currentUser.chatBackground)}');background-size:cover;` : ''}">
           <ul class="chat-messages" id="chat-msgs"></ul>
-          <div id="video-call-container" style="display:none;">
-            <video id="remote-video" autoplay playsinline></video>
-            <video id="local-video" autoplay playsinline muted></video>
-          </div>
         </div>
         <div class="msg-input-area">
           <button class="emoji-btn" id="emoji-btn" title="表情">😀</button>
@@ -702,26 +860,51 @@
       document.getElementById('attach-btn').addEventListener('click', ()=> document.getElementById('file-input').click());
       document.getElementById('file-input').addEventListener('change', handleFileUpload);
       document.getElementById('emoji-btn').addEventListener('click', ()=>{ showEmojiPicker(); });
-      document.getElementById('voice-record-btn').addEventListener('click', ()=>{});
+
+      // 语音消息按钮：按住录音，松开发送（移动端和桌面端兼容）
+      const voiceBtn = document.getElementById('voice-record-btn');
+      if (voiceBtn) {
+        // 桌面端
+        voiceBtn.addEventListener('mousedown', (e) => {
+          e.preventDefault();
+          startVoiceRecording();
+        });
+        voiceBtn.addEventListener('mouseup', (e) => {
+          e.preventDefault();
+          stopVoiceRecording();
+        });
+        voiceBtn.addEventListener('mouseleave', () => {
+          if (isRecording) stopVoiceRecording();
+        });
+        // 移动端
+        voiceBtn.addEventListener('touchstart', (e) => {
+          e.preventDefault();
+          startVoiceRecording();
+        });
+        voiceBtn.addEventListener('touchend', (e) => {
+          e.preventDefault();
+          stopVoiceRecording();
+        });
+        voiceBtn.addEventListener('touchcancel', () => {
+          if (isRecording) stopVoiceRecording();
+        });
+      }
+
       document.getElementById('call-voice-btn').addEventListener('click', ()=>{
         if(!selectedChat || selectedChat.type!=='friend') return alert('仅支持好友语音通话');
-        callInfo = { peerId: selectedChat.id, isCaller: true };
+        callInfo = { peerId: selectedChat.id, isCaller: true, isVideo: false };
         startCall(true);
       });
       document.getElementById('call-video-btn').addEventListener('click', ()=>{
         if(!selectedChat || selectedChat.type!=='friend') return alert('仅支持好友视频通话');
-        callInfo = { peerId: selectedChat.id, isCaller: true };
+        callInfo = { peerId: selectedChat.id, isCaller: true, isVideo: true };
         startCall(true);
       });
-      document.getElementById('hangup-btn').addEventListener('click', ()=>{ endCall(true); });
       document.getElementById('clear-chat-btn').addEventListener('click', async ()=>{
         if(confirm('确定清空所有聊天记录？')){
           await api('/api/chat/clear',{method:'POST',body:JSON.stringify({chatType:selectedChat.type,chatId:selectedChat.id})});
         }
       });
-      if(callInfo) {
-        document.getElementById('hangup-btn').style.display = 'block';
-      }
       if(window.innerWidth<=768){
         chatWin.classList.add('mobile-active');
         document.getElementById('conversation-list')?.classList.add('mobile-hidden');
@@ -760,7 +943,18 @@
           a.textContent = `📄 ${m.fileName||'文件'}`;
           li.appendChild(a);
         } else if(m.type==='voice'){
-          // 预留
+          // 语音消息：播放器 + 时长
+          const audio = document.createElement('audio');
+          audio.controls = true;
+          audio.src = getFileUrl(m.content);
+          audio.style.maxWidth = '200px';
+          li.appendChild(audio);
+          if (m.duration) {
+            const dur = document.createElement('span');
+            dur.style.cssText = 'font-size:12px; color:#888; margin-left:8px;';
+            dur.textContent = `${m.duration}s`;
+            li.appendChild(dur);
+          }
         } else if(m.type==='video'){
           const video = document.createElement('video');
           video.controls = true;
@@ -768,7 +962,6 @@
           video.style.maxWidth = '100%';
           li.appendChild(video);
         } else if(m.type==='emoji'){
-          // 表情消息：大号显示
           const span = document.createElement('span');
           span.style.fontSize = '48px';
           span.style.lineHeight = '1';
@@ -809,7 +1002,6 @@
       const content = input.value.trim();
       input.value = '';
 
-      // 自动判断是否为表情消息
       const emojiRegex = /^[\p{Emoji}\s]+$/u;
       const msgType = emojiRegex.test(content) ? 'emoji' : 'text';
 
@@ -893,7 +1085,6 @@
       }, 5000);
     }
 
-    // 表情选择器
     function showEmojiPicker() {
       const input = document.getElementById('msg-input');
       if (!input) return;
