@@ -15,114 +15,534 @@
       --border: #e2e8f0;
       --danger: #ef4444;
     }
-    * { margin:0; padding:0; box-sizing:border-box; }
-    html, body { height:100%; overflow:hidden; }
-    body { font-family: system-ui, -apple-system, sans-serif; background: var(--bg); display:flex; justify-content:center; align-items:center; }
-    #app { width:100%; max-width:1400px; height:100vh; height:100dvh; background:var(--surface); display:flex; flex-direction:column; overflow:hidden; }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { height: 100%; overflow: hidden; }
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      background: var(--bg);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
+    #app {
+      width: 100%;
+      max-width: 1400px;
+      height: 100vh;
+      height: 100dvh;
+      background: var(--surface);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
 
-    .auth-wrapper { display:flex; align-items:center; justify-content:center; height:100%; padding:20px; }
-    .auth-card { width:100%; max-width:400px; background:#fff; border-radius:24px; padding:40px 30px; box-shadow:0 10px 25px rgba(0,0,0,0.05); }
-    .auth-card h2 { text-align:center; margin-bottom:8px; }
-    .input-field { margin-bottom:18px; }
-    .input-field label { display:block; font-size:13px; color:var(--text-secondary); margin-bottom:6px; }
-    .input-field input { width:100%; padding:12px 16px; border:1px solid var(--border); border-radius:10px; font-size:15px; outline:none; }
-    .btn { background:var(--primary); color:white; border:none; padding:12px 20px; border-radius:10px; font-weight:600; cursor:pointer; width:100%; }
-    .btn-outline { background:transparent; border:1px solid var(--primary); color:var(--primary); }
-    .btn-small { padding:6px 12px; font-size:13px; width:auto; }
-    .text-link { color:var(--primary); font-size:14px; cursor:pointer; display:block; text-align:center; margin-top:12px; }
-    .error-text { color:var(--danger); font-size:13px; margin-top:8px; }
+    /* 登录/注册 */
+    .auth-wrapper {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 100%;
+      padding: 20px;
+    }
+    .auth-card {
+      width: 100%;
+      max-width: 400px;
+      background: #fff;
+      border-radius: 24px;
+      padding: 40px 30px;
+      box-shadow: 0 10px 25px rgba(0,0,0,0.05);
+    }
+    .auth-card h2 { text-align: center; margin-bottom: 8px; }
+    .input-field { margin-bottom: 18px; }
+    .input-field label {
+      display: block;
+      font-size: 13px;
+      color: var(--text-secondary);
+      margin-bottom: 6px;
+    }
+    .input-field input {
+      width: 100%;
+      padding: 12px 16px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      font-size: 15px;
+      outline: none;
+    }
+    .btn {
+      background: var(--primary);
+      color: white;
+      border: none;
+      padding: 12px 20px;
+      border-radius: 10px;
+      font-weight: 600;
+      cursor: pointer;
+      width: 100%;
+    }
+    .btn-outline {
+      background: transparent;
+      border: 1px solid var(--primary);
+      color: var(--primary);
+    }
+    .btn-small { padding: 6px 12px; font-size: 13px; width: auto; }
+    .text-link {
+      color: var(--primary);
+      font-size: 14px;
+      cursor: pointer;
+      display: block;
+      text-align: center;
+      margin-top: 12px;
+    }
+    .error-text { color: var(--danger); font-size: 13px; margin-top: 8px; }
 
-    .main-layout { display:flex; flex:1; overflow:hidden; min-height:0; }
-    .sidebar { width:260px; background:#f9fafb; border-right:1px solid var(--border); padding:16px; flex-shrink:0; display:flex; flex-direction:column; }
-    .content-panel { flex:1; display:flex; flex-direction:column; overflow:hidden; min-height:0; height:100%; }
-    .bottom-nav { display:none; background:#fff; border-top:1px solid var(--border); padding:6px 0; justify-content:space-around; position:fixed; bottom:0; left:0; right:0; z-index:100; height:60px; }
-    .nav-item-mobile { display:flex; flex-direction:column; align-items:center; font-size:11px; color:var(--text-secondary); cursor:pointer; position:relative; }
-    .nav-item-mobile.active { color:var(--primary); }
-    .badge-mobile { background:var(--danger); color:#fff; border-radius:10px; padding:1px 5px; font-size:10px; position:absolute; top:-6px; right:-12px; }
-    .nav-item { padding:10px 14px; border-radius:10px; cursor:pointer; display:flex; align-items:center; gap:10px; font-weight:500; color:var(--text); margin-bottom:4px; }
-    .nav-item.active { background:var(--primary-light); color:var(--primary); }
-    .badge { background:var(--danger); color:#fff; border-radius:20px; padding:2px 8px; font-size:11px; margin-left:auto; }
-    .top-bar { padding:12px 20px; border-bottom:1px solid var(--border); display:flex; align-items:center; gap:12px; min-height:56px; background:#fff; flex-shrink:0; }
-    .search-box { flex:1; padding:8px 16px; border:1px solid var(--border); border-radius:20px; background:#f8fafc; outline:none; }
-    .icon-btn { background:none; border:none; font-size:20px; cursor:pointer; padding:8px; border-radius:8px; flex-shrink:0; }
+    /* 主布局 */
+    .main-layout {
+      display: flex;
+      flex: 1;
+      overflow: hidden;
+      min-height: 0;
+    }
+    .sidebar {
+      width: 260px;
+      background: #f9fafb;
+      border-right: 1px solid var(--border);
+      padding: 16px;
+      flex-shrink: 0;
+      display: flex;
+      flex-direction: column;
+    }
+    .content-panel {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      min-height: 0;
+      height: 100%;
+    }
+    .bottom-nav {
+      display: none;
+      background: #fff;
+      border-top: 1px solid var(--border);
+      padding: 6px 0;
+      justify-content: space-around;
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      z-index: 100;
+      height: 60px;
+    }
+    .nav-item-mobile {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      font-size: 11px;
+      color: var(--text-secondary);
+      cursor: pointer;
+      position: relative;
+    }
+    .nav-item-mobile.active { color: var(--primary); }
+    .badge-mobile {
+      background: var(--danger);
+      color: #fff;
+      border-radius: 10px;
+      padding: 1px 5px;
+      font-size: 10px;
+      position: absolute;
+      top: -6px;
+      right: -12px;
+    }
+    .nav-item {
+      padding: 10px 14px;
+      border-radius: 10px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-weight: 500;
+      color: var(--text);
+      margin-bottom: 4px;
+    }
+    .nav-item.active { background: var(--primary-light); color: var(--primary); }
+    .badge {
+      background: var(--danger);
+      color: #fff;
+      border-radius: 20px;
+      padding: 2px 8px;
+      font-size: 11px;
+      margin-left: auto;
+    }
+    .top-bar {
+      padding: 12px 20px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      min-height: 56px;
+      background: #fff;
+      flex-shrink: 0;
+    }
+    .search-box {
+      flex: 1;
+      padding: 8px 16px;
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      background: #f8fafc;
+      outline: none;
+    }
+    .icon-btn {
+      background: none;
+      border: none;
+      font-size: 20px;
+      cursor: pointer;
+      padding: 8px;
+      border-radius: 8px;
+      flex-shrink: 0;
+    }
 
-    .chat-header { padding:10px 16px; background:#f8fafc; font-weight:600; flex-shrink:0; display:flex; align-items:center; gap:8px; flex-wrap:nowrap; min-height:44px; }
-    .chat-header span { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-    .chat-header .header-btns { display:flex; align-items:center; gap:4px; flex-shrink:0; }
+    /* 聊天区域 */
+    .chat-split {
+      display: flex;
+      flex: 1;
+      overflow: hidden;
+      min-height: 0;
+      height: 100%;
+    }
+    .conversation-list {
+      width: 320px;
+      border-right: 1px solid var(--border);
+      overflow-y: auto;
+      background: #fff;
+    }
+    .chat-window {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      min-height: 0;
+      height: 100%;
+      position: relative;
+    }
+    .conversation-item {
+      display: flex;
+      align-items: center;
+      padding: 14px 16px;
+      cursor: pointer;
+      border-bottom: 1px solid #f1f5f9;
+    }
+    .conversation-item.active { background: var(--primary-light); }
+    .conversation-info { flex: 1; margin-left: 12px; }
+    .conversation-name { font-weight: 500; }
+    .conversation-lastmsg {
+      font-size: 13px;
+      color: var(--text-secondary);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .unread-count {
+      background: var(--danger);
+      color: #fff;
+      border-radius: 12px;
+      padding: 2px 7px;
+      font-size: 11px;
+      margin-left: 8px;
+    }
 
-    .chat-split { display:flex; flex:1; overflow:hidden; min-height:0; height:100%; }
-    .conversation-list { width:320px; border-right:1px solid var(--border); overflow-y:auto; background:#fff; }
-    .chat-window { flex:1; display:flex; flex-direction:column; overflow:hidden; min-height:0; height:100%; position:relative; }
-    .conversation-item { display:flex; align-items:center; padding:14px 16px; cursor:pointer; border-bottom:1px solid #f1f5f9; }
-    .conversation-item.active { background:var(--primary-light); }
-    .conversation-info { flex:1; margin-left:12px; }
-    .conversation-name { font-weight:500; }
-    .conversation-lastmsg { font-size:13px; color:var(--text-secondary); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-    .unread-count { background:var(--danger); color:#fff; border-radius:12px; padding:2px 7px; font-size:11px; margin-left:8px; }
+    /* 聊天头部 */
+    .chat-header {
+      padding: 10px 16px;
+      background: #f8fafc;
+      font-weight: 600;
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: nowrap;
+      min-height: 48px;
+      width: 100%;
+    }
+    .chat-header span {
+      flex: 1 1 auto;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .chat-header .header-btns {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      flex-shrink: 0;
+    }
 
-    .chat-messages-container { flex:1 1 auto; overflow-y:auto; min-height:0; height:0; }
-    .chat-messages { display:flex; flex-direction:column; gap:8px; padding:20px; min-height:100%; }
-    .msg-item { max-width:70%; padding:8px 14px; border-radius:18px; background:#f1f5f9; align-self:flex-start; word-break:break-word; position:relative; }
-    .msg-item.self { align-self:flex-end; background:var(--primary); color:#fff; }
-    .msg-item img { max-width:200px; border-radius:12px; margin:5px 0; }
-    .msg-item video { max-width:250px; border-radius:12px; }
-    .msg-item audio { margin-top:5px; max-width:200px; }
-    .msg-item .file-link { color:inherit; text-decoration:underline; }
-    .msg-delete-btn { position:absolute; top:2px; right:6px; background:rgba(0,0,0,0.5); color:#fff; border:none; border-radius:50%; width:18px; height:18px; font-size:12px; line-height:1; display:block; opacity:0.6; cursor:pointer; }
-    .msg-item:hover .msg-delete-btn { opacity:1; }
+    /* 消息区域 */
+    .chat-messages-container {
+      flex: 1 1 auto;
+      overflow-y: auto;
+      min-height: 0;
+      height: 0;
+    }
+    .chat-messages {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      padding: 20px;
+      min-height: 100%;
+    }
+    .msg-item {
+      max-width: 70%;
+      padding: 8px 14px;
+      border-radius: 18px;
+      background: #f1f5f9;
+      align-self: flex-start;
+      word-break: break-word;
+      position: relative;
+    }
+    .msg-item.self {
+      align-self: flex-end;
+      background: var(--primary);
+      color: #fff;
+    }
+    .msg-item img { max-width: 200px; border-radius: 12px; margin: 5px 0; }
+    .msg-item video { max-width: 250px; border-radius: 12px; }
+    .msg-item audio { margin-top: 5px; max-width: 200px; }
+    .msg-item .file-link { color: inherit; text-decoration: underline; }
+    .msg-delete-btn {
+      position: absolute;
+      top: 2px;
+      right: 6px;
+      background: rgba(0,0,0,0.5);
+      color: #fff;
+      border: none;
+      border-radius: 50%;
+      width: 18px;
+      height: 18px;
+      font-size: 12px;
+      line-height: 1;
+      display: block;
+      opacity: 0.6;
+      cursor: pointer;
+    }
+    .msg-item:hover .msg-delete-btn { opacity: 1; }
 
-    .msg-input-area { flex-shrink:0; display:flex; padding:12px 16px; border-top:1px solid var(--border); background:#fff; gap:8px; position:relative; }
-    .msg-input-area input { flex:1; padding:10px 16px; border:1px solid var(--border); border-radius:24px; outline:none; }
-    .attach-btn { background:var(--primary-light); border:none; border-radius:50%; width:36px; height:36px; font-size:18px; cursor:pointer; }
-    .emoji-btn, .voice-btn { background:var(--primary-light); border:none; border-radius:50%; width:36px; height:36px; font-size:18px; cursor:pointer; }
+    /* 输入区域 */
+    .msg-input-area {
+      flex-shrink: 0;
+      display: flex;
+      padding: 12px 16px;
+      border-top: 1px solid var(--border);
+      background: #fff;
+      gap: 8px;
+      position: relative;
+      min-height: 60px;
+      align-items: center;
+    }
+    .msg-input-area input {
+      flex: 1;
+      padding: 10px 16px;
+      border: 1px solid var(--border);
+      border-radius: 24px;
+      outline: none;
+      min-width: 0;
+    }
+    .attach-btn {
+      background: var(--primary-light);
+      border: none;
+      border-radius: 50%;
+      width: 36px;
+      height: 36px;
+      font-size: 18px;
+      cursor: pointer;
+      flex-shrink: 0;
+    }
+    .emoji-btn, .voice-btn {
+      background: var(--primary-light);
+      border: none;
+      border-radius: 50%;
+      width: 36px;
+      height: 36px;
+      font-size: 18px;
+      cursor: pointer;
+      flex-shrink: 0;
+    }
 
-    .view-container { flex:1; overflow-y:auto; padding:20px; min-height:0; -webkit-overflow-scrolling:touch; }
-    .list-item { display:flex; align-items:center; justify-content:space-between; padding:12px 16px; border-radius:10px; margin-bottom:6px; cursor:pointer; }
-    .list-item:hover { background:#f8fafc; }
-    .card { background:#fff; border-radius:16px; padding:24px; border:1px solid var(--border); margin-bottom:16px; }
-    .section-title { font-size:14px; color:var(--text-secondary); padding:8px 0; font-weight:500; }
-    .avatar-sm { width:36px; height:36px; border-radius:50%; object-fit:cover; }
+    /* 视图容器 */
+    .view-container {
+      flex: 1;
+      overflow-y: auto;
+      padding: 20px;
+      min-height: 0;
+      -webkit-overflow-scrolling: touch;
+    }
+    .list-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 16px;
+      border-radius: 10px;
+      margin-bottom: 6px;
+      cursor: pointer;
+    }
+    .list-item:hover { background: #f8fafc; }
+    .card {
+      background: #fff;
+      border-radius: 16px;
+      padding: 24px;
+      border: 1px solid var(--border);
+      margin-bottom: 16px;
+    }
+    .section-title {
+      font-size: 14px;
+      color: var(--text-secondary);
+      padding: 8px 0;
+      font-weight: 500;
+    }
+    .avatar-sm {
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      object-fit: cover;
+    }
 
-    .video-call-overlay { display:none; position:fixed; top:0; left:0; width:100vw; height:100vh; height:100dvh; background:rgba(0,0,0,0.95); z-index:10000; flex-direction:column; align-items:center; justify-content:center; }
-    .video-call-overlay.active { display:flex; }
-    .video-remote { width:100%; height:100%; object-fit:cover; position:absolute; top:0; left:0; }
-    .video-local { width:120px; height:160px; object-fit:cover; position:absolute; bottom:80px; right:20px; border-radius:12px; border:2px solid white; background:#333; z-index:2; }
-    .video-controls { position:absolute; bottom:30px; left:50%; transform:translateX(-50%); display:flex; gap:20px; z-index:3; }
-    .video-controls button { width:50px; height:50px; border-radius:50%; border:none; font-size:22px; cursor:pointer; color:white; }
-    .btn-hangup-overlay { background:#ef4444; }
-    .btn-mute-overlay { background:#555; }
-    .btn-mute-overlay.muted { background:#ef4444; }
-    .btn-camera-overlay { background:#555; }
-    .btn-camera-overlay.off { background:#ef4444; }
-    .btn-speaker-overlay { background:#555; }
+    /* 视频通话弹窗 */
+    .video-call-overlay {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      height: 100dvh;
+      background: rgba(0,0,0,0.95);
+      z-index: 10000;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+    }
+    .video-call-overlay.active { display: flex; }
+    .video-remote {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      position: absolute;
+      top: 0;
+      left: 0;
+    }
+    .video-local {
+      width: 120px;
+      height: 160px;
+      object-fit: cover;
+      position: absolute;
+      bottom: 80px;
+      right: 20px;
+      border-radius: 12px;
+      border: 2px solid white;
+      background: #333;
+      z-index: 2;
+    }
+    .video-controls {
+      position: absolute;
+      bottom: 30px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      gap: 20px;
+      z-index: 3;
+    }
+    .video-controls button {
+      width: 50px;
+      height: 50px;
+      border-radius: 50%;
+      border: none;
+      font-size: 22px;
+      cursor: pointer;
+      color: white;
+    }
+    .btn-hangup-overlay { background: #ef4444; }
+    .btn-mute-overlay { background: #555; }
+    .btn-mute-overlay.muted { background: #ef4444; }
+    .btn-camera-overlay { background: #555; }
+    .btn-camera-overlay.off { background: #ef4444; }
+    .btn-speaker-overlay { background: #555; }
 
-    .voice-call-tip { display:none; position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); background:rgba(0,0,0,0.85); color:white; padding:30px 40px; border-radius:20px; text-align:center; z-index:10000; flex-direction:column; align-items:center; gap:15px; font-size:18px; }
-    .voice-call-tip.active { display:flex; }
-    .voice-call-tip .hangup-btn-voice { background:#ef4444; color:white; border:none; width:60px; height:60px; border-radius:50%; font-size:28px; cursor:pointer; }
+    /* 语音通话提示 */
+    .voice-call-tip {
+      display: none;
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      background: rgba(0,0,0,0.85);
+      color: white;
+      padding: 30px 40px;
+      border-radius: 20px;
+      text-align: center;
+      z-index: 10000;
+      flex-direction: column;
+      align-items: center;
+      gap: 15px;
+      font-size: 18px;
+    }
+    .voice-call-tip.active { display: flex; }
+    .voice-call-tip .hangup-btn-voice {
+      background: #ef4444;
+      color: white;
+      border: none;
+      width: 60px;
+      height: 60px;
+      border-radius: 50%;
+      font-size: 28px;
+      cursor: pointer;
+    }
 
-    .recording-tip { display:none; position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); background:rgba(0,0,0,0.8); color:white; padding:20px 30px; border-radius:16px; font-size:16px; z-index:9999; text-align:center; align-items:center; gap:10px; }
-    .recording-tip.active { display:flex; }
-    .recording-wave { display:flex; align-items:center; gap:2px; height:30px; }
-    .recording-wave span { width:3px; background:#ef4444; border-radius:2px; animation:pulse 0.8s infinite alternate; }
-    .recording-wave span:nth-child(2) { animation-delay:0.1s; }
-    .recording-wave span:nth-child(3) { animation-delay:0.2s; }
-    .recording-wave span:nth-child(4) { animation-delay:0.3s; }
-    .recording-wave span:nth-child(5) { animation-delay:0.4s; }
-    @keyframes pulse { 0% { height:8px; } 100% { height:30px; } }
+    /* 录音提示 */
+    .recording-tip {
+      display: none;
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      background: rgba(0,0,0,0.8);
+      color: white;
+      padding: 20px 30px;
+      border-radius: 16px;
+      font-size: 16px;
+      z-index: 9999;
+      text-align: center;
+      align-items: center;
+      gap: 10px;
+    }
+    .recording-tip.active { display: flex; }
+    .recording-wave { display: flex; align-items: center; gap: 2px; height: 30px; }
+    .recording-wave span {
+      width: 3px;
+      background: #ef4444;
+      border-radius: 2px;
+      animation: pulse 0.8s infinite alternate;
+    }
+    .recording-wave span:nth-child(2) { animation-delay: 0.1s; }
+    .recording-wave span:nth-child(3) { animation-delay: 0.2s; }
+    .recording-wave span:nth-child(4) { animation-delay: 0.3s; }
+    .recording-wave span:nth-child(5) { animation-delay: 0.4s; }
+    @keyframes pulse {
+      0% { height: 8px; }
+      100% { height: 30px; }
+    }
 
-    @media (max-width:768px) {
-      .sidebar { display:none; }
-      .bottom-nav { display:flex; }
-      .main-layout { flex-direction:column; }
-      .content-panel { padding-bottom:60px; }
-      .chat-split { flex-direction:column; }
-      .conversation-list { width:100%; border-right:none; }
-      .chat-window { display:none; }
-      .chat-window.mobile-active { display:flex; }
-      .conversation-list.mobile-hidden { display:none; }
-      .video-local { width:80px; height:110px; bottom:100px; right:10px; }
-      .chat-header { gap:2px; padding:8px 10px; }
-      .chat-header .icon-btn { padding:6px; font-size:18px; }
+    /* 响应式 */
+    @media (max-width: 768px) {
+      .sidebar { display: none; }
+      .bottom-nav { display: flex; }
+      .main-layout { flex-direction: column; }
+      .content-panel { padding-bottom: 60px; }
+      .chat-split { flex-direction: column; }
+      .conversation-list { width: 100%; border-right: none; }
+      .chat-window { display: none; }
+      .chat-window.mobile-active { display: flex; }
+      .conversation-list.mobile-hidden { display: none; }
+      .video-local { width: 80px; height: 110px; bottom: 100px; right: 10px; }
+      .chat-header { gap: 2px; padding: 8px 10px; }
+      .chat-header .icon-btn { padding: 6px; font-size: 16px; }
+      .msg-input-area { padding: 8px 10px; gap: 4px; }
     }
   </style>
 </head>
@@ -150,14 +570,18 @@
 
 <!-- 录音提示 -->
 <div class="recording-tip" id="recordingTip">
-  <div class="recording-wave"><span></span><span></span><span></span><span></span><span></span></div>
+  <div class="recording-wave">
+    <span></span><span></span><span></span><span></span><span></span>
+  </div>
   <span style="margin-left:10px;">松开发送，上滑取消</span>
 </div>
 
 <script src="/socket.io/socket.io.js"></script>
 <script>
 (function() {
-  // ==================== 全局状态 ====================
+  // ====================================================================
+  //  全局状态
+  // ====================================================================
   let currentUser = null;
   let socket = null;
   let activeNav = 'messages';
@@ -184,7 +608,9 @@
 
   const API_BASE = '';
 
-  // ==================== 工具函数 ====================
+  // ====================================================================
+  //  工具函数
+  // ====================================================================
   function getFileUrl(url) {
     if (!url) return '';
     if (url.startsWith('http')) return url;
@@ -239,7 +665,9 @@
     return msg;
   }
 
-  // ==================== Socket 连接 ====================
+  // ====================================================================
+  //  Socket 连接
+  // ====================================================================
   function connectSocket() {
     if (socket) {
       socket.removeAllListeners();
@@ -275,7 +703,6 @@
       console.error('Socket 连接错误:', err.message);
     });
 
-    // 收到离线好友申请列表
     socket.on('pending_friend_requests', function(list) {
       console.log('收到离线好友申请列表', list);
       if (Array.isArray(list)) {
@@ -283,20 +710,15 @@
       }
     });
 
-    // 收到实时好友申请
     socket.on('friend_request_received', function(data) {
       console.log('收到实时好友申请', data);
       showFriendRequestPopup(data);
     });
 
-    // 收到聊天消息
     socket.on('chat message', function(msg) {
       normalizeMessage(msg);
-
-      // 忽略自己发送的消息（已在ACK中处理）
       if (msg.from === currentUser.id) return;
 
-      // 确定缓存key
       let key;
       if (msg.toType === 'group') {
         key = 'group_' + msg.to;
@@ -308,17 +730,14 @@
         messagesCache[key] = [];
       }
 
-      // 去重
       if (!messagesCache[key].some(function(m) { return m.id === msg.id; })) {
         messagesCache[key].push(msg);
       }
 
-      // 限制缓存数量
       if (messagesCache[key].length > 500) {
         messagesCache[key].shift();
       }
 
-      // 更新最后消息
       if (msg.type === 'text') {
         lastMessages[key] = msg.content;
       } else if (msg.type === 'image') {
@@ -333,7 +752,6 @@
         lastMessages[key] = '[视频]';
       }
 
-      // 判断是否为当前聊天
       const isActive = selectedChat && (
         (selectedChat.type === 'friend' && key === 'friend_' + selectedChat.id) ||
         (selectedChat.type === 'group' && key === 'group_' + selectedChat.id)
@@ -352,7 +770,6 @@
       }
     });
 
-    // 好友相关事件
     socket.on('new_friend_request', function() {
       fetchFriendRequests();
       updateBadge();
@@ -372,12 +789,13 @@
       if (activeNav === 'contacts') switchView('contacts');
     });
 
-    // 消息删除
     socket.on('message_deleted', function(data) {
       if (!selectedChat) return;
       const key = selectedChat.type === 'friend' ? 'friend_' + selectedChat.id : 'group_' + selectedChat.id;
       if (messagesCache[key]) {
-        messagesCache[key] = messagesCache[key].filter(function(m) { return m.id !== data.messageId; });
+        messagesCache[key] = messagesCache[key].filter(function(m) {
+          return m.id !== data.messageId;
+        });
         const last = messagesCache[key].at(-1);
         if (last) {
           lastMessages[key] = last.type === 'text' ? last.content : '[媒体]';
@@ -389,7 +807,6 @@
       renderConversationList();
     });
 
-    // 清空聊天
     socket.on('chat_cleared', function(data) {
       const key = data.chatType === 'friend' ? 'friend_' + data.chatId : 'group_' + data.chatId;
       messagesCache[key] = [];
@@ -435,7 +852,9 @@
     });
   }
 
-  // ==================== 好友申请弹窗 ====================
+  // ====================================================================
+  //  好友申请弹窗
+  // ====================================================================
   function showFriendRequestPopup(data) {
     if (!data) return;
     const fromId = data.fromId || data.from_user;
@@ -448,7 +867,9 @@
     alert('收到来自用户 ' + fromId + ' 的好友申请');
   }
 
-  // ==================== 语音/视频通话 ====================
+  // ====================================================================
+  //  语音/视频通话
+  // ====================================================================
   async function startCall(isCaller, remoteOffer) {
     const isVideoCall = callInfo && callInfo.isVideo;
 
@@ -463,7 +884,6 @@
       return;
     }
 
-    // 视频通话：显示视频弹窗
     if (isVideoCall) {
       const overlay = document.getElementById('videoCallOverlay');
       const localVideo = document.getElementById('localVideo');
@@ -490,7 +910,6 @@
         endCall(true);
       };
     } else {
-      // 语音通话：显示语音浮层
       const voiceTip = document.getElementById('voiceCallTip');
       if (voiceTip) voiceTip.classList.add('active');
       document.getElementById('btnHangupVoice').onclick = function() {
@@ -559,22 +978,21 @@
     peerConnection = null;
     callInfo = null;
 
-    // 隐藏视频弹窗
     const overlay = document.getElementById('videoCallOverlay');
     if (overlay) overlay.classList.remove('active');
 
-    // 隐藏语音浮层
     const voiceTip = document.getElementById('voiceCallTip');
     if (voiceTip) voiceTip.classList.remove('active');
 
-    // 清除视频源
     const remoteVideo = document.getElementById('remoteVideo');
     const localVideo = document.getElementById('localVideo');
     if (remoteVideo) remoteVideo.srcObject = null;
     if (localVideo) localVideo.srcObject = null;
   }
 
-  // ==================== 语音录制 ====================
+  // ====================================================================
+  //  语音录制
+  // ====================================================================
   async function startVoiceRecording() {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -608,7 +1026,6 @@
           const key = selectedChat.type === 'friend' ? 'friend_' + selectedChat.id : 'group_' + selectedChat.id;
           if (!messagesCache[key]) messagesCache[key] = [];
 
-          // 乐观更新
           const tempId = 'temp_voice_' + Date.now();
           const tempMsg = {
             id: tempId,
@@ -627,7 +1044,6 @@
           renderChatMessages();
           renderConversationList();
 
-          // 发送消息
           const clientMsgId = Date.now() + '_' + Math.random().toString(36).substr(2, 9);
           socket.emit('private message', {
             clientMsgId: clientMsgId,
@@ -682,7 +1098,9 @@
     }
   }
 
-  // ==================== 数据获取 ====================
+  // ====================================================================
+  //  数据获取
+  // ====================================================================
   async function fetchFriends() {
     const d = await api('/api/friends');
     friends = d.friends || [];
@@ -717,7 +1135,9 @@
   }
 
   async function fetchMessages(chatType, chatId) {
-    const ep = chatType === 'friend' ? '/api/messages/friend/' + chatId : '/api/messages/group/' + chatId;
+    const ep = chatType === 'friend'
+      ? '/api/messages/friend/' + chatId
+      : '/api/messages/group/' + chatId;
     const d = await api(ep);
     const key = chatType === 'friend' ? 'friend_' + chatId : 'group_' + chatId;
     messagesCache[key] = (d.messages || []).map(normalizeMessage);
@@ -731,12 +1151,15 @@
     }
   }
 
-  // ==================== 渲染登录/注册 ====================
+  // ====================================================================
+  //  渲染 - 登录/注册
+  // ====================================================================
   function renderAuth(mode) {
     if (mode === undefined) mode = 'login';
 
     let html = '';
-    html += '<div class="auth-wrapper"><div class="auth-card">';
+    html += '<div class="auth-wrapper">';
+    html += '<div class="auth-card">';
     html += '<h2>' + (mode === 'login' ? '登录' : '注册') + '悄悄话</h2>';
     html += '<div class="input-field"><label>账号</label><input id="username" placeholder="字母+数字 4-20位"></div>';
     html += '<div class="input-field"><label>密码</label><input type="password" id="password" placeholder="至少8位，含字母和数字"></div>';
@@ -749,7 +1172,8 @@
     html += '<button class="btn" id="auth-btn">' + (mode === 'login' ? '登录' : '注册') + '</button>';
     html += '<div class="error-text" id="auth-error"></div>';
     html += '<div class="text-link" id="toggle-mode">' + (mode === 'login' ? '没有账号？去注册' : '已有账号？去登录') + '</div>';
-    html += '</div></div>';
+    html += '</div>';
+    html += '</div>';
 
     document.getElementById('app').innerHTML = html;
 
@@ -811,7 +1235,9 @@
     });
   }
 
-  // ==================== 渲染主界面 ====================
+  // ====================================================================
+  //  渲染 - 主界面
+  // ====================================================================
   async function renderMain() {
     let html = '';
     html += '<div class="main-layout" id="main-layout">';
@@ -850,11 +1276,13 @@
     const totalUnread = Object.values(unreadCounts).reduce(function(a, b) { return a + b; }, 0);
 
     let html = '';
-    html += '<div class="nav-item ' + (activeNav === 'messages' ? 'active' : '') + '" data-nav="messages">💬 消息';
+    html += '<div class="nav-item ' + (activeNav === 'messages' ? 'active' : '') + '" data-nav="messages">';
+    html += '💬 消息';
     if (totalUnread) html += '<span class="badge">' + totalUnread + '</span>';
     html += '</div>';
 
-    html += '<div class="nav-item ' + (activeNav === 'contacts' ? 'active' : '') + '" data-nav="contacts">👥 通讯录';
+    html += '<div class="nav-item ' + (activeNav === 'contacts' ? 'active' : '') + '" data-nav="contacts">';
+    html += '👥 通讯录';
     if (pending) html += '<span class="badge">' + pending + '</span>';
     html += '</div>';
 
@@ -885,11 +1313,13 @@
     const totalUnread = Object.values(unreadCounts).reduce(function(a, b) { return a + b; }, 0);
 
     let html = '';
-    html += '<div class="nav-item-mobile ' + (activeNav === 'messages' ? 'active' : '') + '" data-nav="messages"><span>💬</span><span>消息</span>';
+    html += '<div class="nav-item-mobile ' + (activeNav === 'messages' ? 'active' : '') + '" data-nav="messages">';
+    html += '<span>💬</span><span>消息</span>';
     if (totalUnread) html += '<span class="badge-mobile">' + totalUnread + '</span>';
     html += '</div>';
 
-    html += '<div class="nav-item-mobile ' + (activeNav === 'contacts' ? 'active' : '') + '" data-nav="contacts"><span>👥</span><span>通讯录</span>';
+    html += '<div class="nav-item-mobile ' + (activeNav === 'contacts' ? 'active' : '') + '" data-nav="contacts">';
+    html += '<span>👥</span><span>通讯录</span>';
     if (pending) html += '<span class="badge-mobile">' + pending + '</span>';
     html += '</div>';
 
@@ -913,12 +1343,14 @@
     const topBar = document.getElementById('top-bar');
     if (!topBar) return;
 
-    topBar.innerHTML = '';
-    topBar.innerHTML += '<input class="search-box" placeholder="🔍 搜索..." id="global-search">';
-    topBar.innerHTML += '<button class="icon-btn" id="add-friend-btn">➕</button>';
-    topBar.innerHTML += '<button class="icon-btn" id="invite-add-btn">🎟️</button>';
-    topBar.innerHTML += '<button class="icon-btn" id="profile-btn" title="个人主页">👤</button>';
-    topBar.innerHTML += '<span style="margin-left:auto;font-weight:500;">' + escapeHtml(currentUser.nickname || currentUser.username) + '</span>';
+    let html = '';
+    html += '<input class="search-box" placeholder="🔍 搜索..." id="global-search">';
+    html += '<button class="icon-btn" id="add-friend-btn">➕</button>';
+    html += '<button class="icon-btn" id="invite-add-btn">🎟️</button>';
+    html += '<button class="icon-btn" id="profile-btn" title="个人主页">👤</button>';
+    html += '<span style="margin-left:auto;font-weight:500;">' + escapeHtml(currentUser.nickname || currentUser.username) + '</span>';
+
+    topBar.innerHTML = html;
 
     document.getElementById('global-search').addEventListener('keypress', function(e) {
       if (e.key === 'Enter') globalSearch(e.target.value);
@@ -999,15 +1431,20 @@
     }
   }
 
+  // ====================================================================
+  //  渲染 - 通讯录
+  // ====================================================================
   function renderContactsView(container) {
     container.innerHTML = '<div class="view-container" style="height:100%;overflow-y:auto;-webkit-overflow-scrolling:touch;"><div id="contacts-content"></div></div>';
 
     const content = document.getElementById('contacts-content');
-    content.innerHTML = '';
-    content.innerHTML += '<div class="section-title">🔔 新的朋友</div><div id="req-list"></div>';
-    content.innerHTML += '<div class="section-title" style="margin-top:16px;">👤 我的好友</div><div id="friend-list"></div>';
-    content.innerHTML += '<div class="section-title" style="margin-top:16px;">👥 我的群组</div><div id="group-list"></div>';
+    let html = '';
+    html += '<div class="section-title">🔔 新的朋友</div><div id="req-list"></div>';
+    html += '<div class="section-title" style="margin-top:16px;">👤 我的好友</div><div id="friend-list"></div>';
+    html += '<div class="section-title" style="margin-top:16px;">👥 我的群组</div><div id="group-list"></div>';
+    content.innerHTML = html;
 
+    // 好友请求列表
     const reqList = document.getElementById('req-list');
     const pendingReqs = friendRequests.filter(function(r) {
       return r.to === currentUser.id && r.status === 'pending';
@@ -1026,6 +1463,7 @@
       });
     }
 
+    // 绑定同意/拒绝事件
     document.querySelectorAll('[data-accept]').forEach(function(btn) {
       btn.addEventListener('click', async function(e) {
         await api('/api/friend-request/' + e.target.dataset.accept + '/accept', { method: 'POST' });
@@ -1043,6 +1481,7 @@
       });
     });
 
+    // 好友列表
     const friendList = document.getElementById('friend-list');
     if (!friends.length) {
       friendList.innerHTML = '<div style="padding:12px;color:var(--text-secondary);">暂无好友</div>';
@@ -1076,6 +1515,7 @@
       });
     }
 
+    // 群组列表
     const groupList = document.getElementById('group-list');
     if (!groups.length) {
       groupList.innerHTML = '<div style="padding:12px;color:var(--text-secondary);">暂无群组</div>';
@@ -1094,6 +1534,9 @@
     }
   }
 
+  // ====================================================================
+  //  渲染 - 个人主页
+  // ====================================================================
   function renderProfileView(container) {
     container.innerHTML = '<div class="view-container" style="height:100%;overflow-y:auto;padding-bottom:100px;-webkit-overflow-scrolling:touch;" id="profile-container"></div>';
 
@@ -1102,39 +1545,41 @@
     const userBio = currentUser.bio || currentUser.signature || '';
     const userCreatedAt = currentUser.createdAt || '未知';
 
-    pc.innerHTML = '';
-    pc.innerHTML += '<div class="card">';
-    pc.innerHTML += '<div style="display:flex;align-items:center;gap:16px;">';
-    pc.innerHTML += '<img src="' + (getFileUrl(currentUser.avatar) || '/default-avatar.png') + '" style="width:60px;height:60px;border-radius:50%;object-fit:cover;" id="profile-avatar-preview">';
-    pc.innerHTML += '<div><h3>🤫 ' + escapeHtml(currentUser.nickname || currentUser.username) + '</h3><p>UID: ' + currentUser.id + '</p></div>';
-    pc.innerHTML += '</div>';
-    pc.innerHTML += '<input type="file" accept="image/*" id="avatar-upload" style="margin-top:12px;">';
-    pc.innerHTML += '<p>性别: ' + escapeHtml(currentUser.gender || '未设置') + '</p>';
-    pc.innerHTML += '<p>地区: ' + escapeHtml(currentUser.region || '未知') + '</p>';
-    pc.innerHTML += '<p>签名/简介: ' + escapeHtml(userBio) + '</p>';
-    pc.innerHTML += '<p>邀请码: <strong>' + escapeHtml(currentUser.inviteCode) + '</strong></p>';
-    pc.innerHTML += '<p>注册时间: ' + escapeHtml(userCreatedAt) + '</p>';
-    pc.innerHTML += '<button class="btn" id="edit-profile-btn">编辑资料</button>';
-    pc.innerHTML += '</div>';
+    let html = '';
+    html += '<div class="card">';
+    html += '<div style="display:flex;align-items:center;gap:16px;">';
+    html += '<img src="' + (getFileUrl(currentUser.avatar) || '/default-avatar.png') + '" style="width:60px;height:60px;border-radius:50%;object-fit:cover;" id="profile-avatar-preview">';
+    html += '<div><h3>🤫 ' + escapeHtml(currentUser.nickname || currentUser.username) + '</h3><p>UID: ' + currentUser.id + '</p></div>';
+    html += '</div>';
+    html += '<input type="file" accept="image/*" id="avatar-upload" style="margin-top:12px;">';
+    html += '<p>性别: ' + escapeHtml(currentUser.gender || '未设置') + '</p>';
+    html += '<p>地区: ' + escapeHtml(currentUser.region || '未知') + '</p>';
+    html += '<p>签名/简介: ' + escapeHtml(userBio) + '</p>';
+    html += '<p>邀请码: <strong>' + escapeHtml(currentUser.inviteCode) + '</strong></p>';
+    html += '<p>注册时间: ' + escapeHtml(userCreatedAt) + '</p>';
+    html += '<button class="btn" id="edit-profile-btn">编辑资料</button>';
+    html += '</div>';
 
-    pc.innerHTML += '<div class="card"><h4>🎨 聊天背景</h4><input type="file" accept="image/*" id="background-upload">';
+    html += '<div class="card"><h4>🎨 聊天背景</h4><input type="file" accept="image/*" id="background-upload">';
     if (userBackground) {
-      pc.innerHTML += '<img src="' + getFileUrl(userBackground) + '" style="max-width:200px;margin-top:8px;">';
+      html += '<img src="' + getFileUrl(userBackground) + '" style="max-width:200px;margin-top:8px;">';
     }
-    pc.innerHTML += '</div>';
+    html += '</div>';
 
-    pc.innerHTML += '<div class="card"><h4>🔔 通知中心</h4><div id="notif-list">';
+    html += '<div class="card"><h4>🔔 通知中心</h4><div id="notif-list">';
     if (notifications.length) {
-      pc.innerHTML += notifications.map(function(n) {
+      html += notifications.map(function(n) {
         return '<div class="list-item">' + escapeHtml(n.message) + '</div>';
       }).join('');
     } else {
-      pc.innerHTML += '<div>暂无通知</div>';
+      html += '<div>暂无通知</div>';
     }
-    pc.innerHTML += '</div></div>';
+    html += '</div></div>';
 
-    pc.innerHTML += '<button class="btn btn-outline" id="change-pwd-btn" style="margin-bottom:8px;">修改密码</button>';
-    pc.innerHTML += '<button class="btn btn-outline" id="logout-btn" style="margin-top:8px;color:var(--danger);border-color:var(--danger);">退出登录</button>';
+    html += '<button class="btn btn-outline" id="change-pwd-btn" style="margin-bottom:8px;">修改密码</button>';
+    html += '<button class="btn btn-outline" id="logout-btn" style="margin-top:8px;color:var(--danger);border-color:var(--danger);">退出登录</button>';
+
+    pc.innerHTML = html;
 
     // 绑定事件
     document.getElementById('avatar-upload').addEventListener('change', async function(e) {
@@ -1203,6 +1648,9 @@
     };
   }
 
+  // ====================================================================
+  //  渲染 - 会话列表
+  // ====================================================================
   function renderConversationList() {
     const list = document.getElementById('conversation-list');
     if (!list) return;
@@ -1254,6 +1702,9 @@
     });
   }
 
+  // ====================================================================
+  //  渲染 - 打开聊天
+  // ====================================================================
   async function openChatFromConversation(type, id) {
     selectedChat = { type: type, id: id };
     const key = type === 'friend' ? 'friend_' + id : 'group_' + id;
@@ -1269,36 +1720,36 @@
       title = group ? group.name : '群聊';
     }
 
-    const chatWin = document.getElementById('chat-window');
-    chatWin.innerHTML = '';
+    const cw = document.getElementById('chat-window');
 
-    // 聊天头部 - 使用chat-header类确保横向排列
-    chatWin.innerHTML += '<div class="chat-header">';
+    // 一次性构建完整 HTML
+    let html = '';
+    html += '<div class="chat-header">';
     if (window.innerWidth <= 768) {
-      chatWin.innerHTML += '<button class="icon-btn" id="back-btn">←</button>';
+      html += '<button class="icon-btn" id="back-btn">←</button>';
     }
-    chatWin.innerHTML += '<span>' + escapeHtml(title) + '</span>';
-    chatWin.innerHTML += '<div class="header-btns">';
-    chatWin.innerHTML += '<button class="icon-btn" id="call-voice-btn" title="语音通话">📞</button>';
-    chatWin.innerHTML += '<button class="icon-btn" id="call-video-btn" title="视频通话">📹</button>';
-    chatWin.innerHTML += '<button class="icon-btn" id="clear-chat-btn" title="清空聊天">🗑️</button>';
-    chatWin.innerHTML += '</div>';
-    chatWin.innerHTML += '</div>';
+    html += '<span>' + escapeHtml(title) + '</span>';
+    html += '<div class="header-btns">';
+    html += '<button class="icon-btn" id="call-voice-btn" title="语音通话">📞</button>';
+    html += '<button class="icon-btn" id="call-video-btn" title="视频通话">📹</button>';
+    html += '<button class="icon-btn" id="clear-chat-btn" title="清空聊天">🗑️</button>';
+    html += '</div>';
+    html += '</div>';
 
-    // 消息区域
-    chatWin.innerHTML += '<div class="chat-messages-container" id="chat-messages-container" style="' + (currentUser.chatBackground ? 'background-image:url(\'' + getFileUrl(currentUser.chatBackground) + '\');background-size:cover;' : '') + '">';
-    chatWin.innerHTML += '<ul class="chat-messages" id="chat-msgs"></ul>';
-    chatWin.innerHTML += '</div>';
+    html += '<div class="chat-messages-container" id="chat-messages-container" style="' + (currentUser.chatBackground ? 'background-image:url(\'' + getFileUrl(currentUser.chatBackground) + '\');background-size:cover;' : '') + '">';
+    html += '<ul class="chat-messages" id="chat-msgs"></ul>';
+    html += '</div>';
 
-    // 输入区域
-    chatWin.innerHTML += '<div class="msg-input-area">';
-    chatWin.innerHTML += '<button class="emoji-btn" id="emoji-btn" title="表情">😀</button>';
-    chatWin.innerHTML += '<button class="voice-btn" id="voice-record-btn" title="语音消息">🎤</button>';
-    chatWin.innerHTML += '<input id="msg-input" placeholder="输入消息...">';
-    chatWin.innerHTML += '<input type="file" id="file-input" style="display:none" multiple>';
-    chatWin.innerHTML += '<button class="attach-btn" id="attach-btn" title="发送文件">📎</button>';
-    chatWin.innerHTML += '<button class="btn" style="width:auto;" id="send-msg-btn">发送</button>';
-    chatWin.innerHTML += '</div>';
+    html += '<div class="msg-input-area">';
+    html += '<button class="emoji-btn" id="emoji-btn" title="表情">😀</button>';
+    html += '<button class="voice-btn" id="voice-record-btn" title="语音消息">🎤</button>';
+    html += '<input id="msg-input" placeholder="输入消息...">';
+    html += '<input type="file" id="file-input" style="display:none" multiple>';
+    html += '<button class="attach-btn" id="attach-btn" title="发送文件">📎</button>';
+    html += '<button class="btn" style="width:auto;flex-shrink:0;" id="send-msg-btn">发送</button>';
+    html += '</div>';
+
+    cw.innerHTML = html;
 
     renderChatMessages();
 
@@ -1369,7 +1820,7 @@
     });
 
     if (window.innerWidth <= 768) {
-      chatWin.classList.add('mobile-active');
+      cw.classList.add('mobile-active');
       document.getElementById('conversation-list').classList.add('mobile-hidden');
     }
 
@@ -1377,6 +1828,9 @@
     updateBadge();
   }
 
+  // ====================================================================
+  //  渲染 - 聊天消息
+  // ====================================================================
   function renderChatMessages() {
     if (!selectedChat) return;
 
@@ -1460,6 +1914,9 @@
     }
   }
 
+  // ====================================================================
+  //  发送消息
+  // ====================================================================
   function sendMessage() {
     if (isSending) return;
 
@@ -1476,7 +1933,6 @@
     const content = input.value.trim();
     input.value = '';
 
-    // 判断是否为纯表情消息
     const emojiRegex = /^[\p{Emoji}\s]+$/u;
     const msgType = emojiRegex.test(content) ? 'emoji' : 'text';
 
@@ -1568,6 +2024,9 @@
     }, 5000);
   }
 
+  // ====================================================================
+  //  表情选择器
+  // ====================================================================
   function showEmojiPicker() {
     const input = document.getElementById('msg-input');
     if (!input) return;
@@ -1613,6 +2072,9 @@
     }, 100);
   }
 
+  // ====================================================================
+  //  文件上传
+  // ====================================================================
   async function handleFileUpload(e) {
     const files = e.target.files;
     if (!files.length) return;
@@ -1681,12 +2143,17 @@
     e.target.value = '';
   }
 
+  // ====================================================================
+  //  更新角标
+  // ====================================================================
   function updateBadge() {
     renderSidebar();
     renderBottomNav();
   }
 
-  // ==================== 初始化 ====================
+  // ====================================================================
+  //  初始化
+  // ====================================================================
   (async function init() {
     try {
       const data = await api('/api/me');
