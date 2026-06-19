@@ -44,7 +44,11 @@
     .badge { background:var(--danger); color:#fff; border-radius:20px; padding:2px 8px; font-size:11px; margin-left:auto; }
     .top-bar { padding:12px 20px; border-bottom:1px solid var(--border); display:flex; align-items:center; gap:12px; min-height:56px; background:#fff; flex-shrink:0; }
     .search-box { flex:1; padding:8px 16px; border:1px solid var(--border); border-radius:20px; background:#f8fafc; outline:none; }
-    .icon-btn { background:none; border:none; font-size:20px; cursor:pointer; padding:8px; border-radius:8px; }
+    .icon-btn { background:none; border:none; font-size:20px; cursor:pointer; padding:8px; border-radius:8px; flex-shrink:0; }
+
+    .chat-header { padding:10px 16px; background:#f8fafc; font-weight:600; flex-shrink:0; display:flex; align-items:center; gap:8px; flex-wrap:nowrap; min-height:44px; }
+    .chat-header span { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .chat-header .header-btns { display:flex; align-items:center; gap:4px; flex-shrink:0; }
 
     .chat-split { display:flex; flex:1; overflow:hidden; min-height:0; height:100%; }
     .conversation-list { width:320px; border-right:1px solid var(--border); overflow-y:auto; background:#fff; }
@@ -117,12 +121,15 @@
       .chat-window.mobile-active { display:flex; }
       .conversation-list.mobile-hidden { display:none; }
       .video-local { width:80px; height:110px; bottom:100px; right:10px; }
+      .chat-header { gap:2px; padding:8px 10px; }
+      .chat-header .icon-btn { padding:6px; font-size:18px; }
     }
   </style>
 </head>
 <body>
 <div id="app"></div>
 
+<!-- 视频通话弹窗 -->
 <div class="video-call-overlay" id="videoCallOverlay">
   <video id="remoteVideo" class="video-remote" autoplay playsinline></video>
   <video id="localVideo" class="video-local" autoplay playsinline muted></video>
@@ -134,12 +141,14 @@
   </div>
 </div>
 
+<!-- 语音通话提示 -->
 <div class="voice-call-tip" id="voiceCallTip">
   <div style="font-size:40px;">📞</div>
   <div id="voiceCallStatus">语音通话中...</div>
   <button class="hangup-btn-voice" id="btnHangupVoice" title="挂断">📞</button>
 </div>
 
+<!-- 录音提示 -->
 <div class="recording-tip" id="recordingTip">
   <div class="recording-wave"><span></span><span></span><span></span><span></span><span></span></div>
   <span style="margin-left:10px;">松开发送，上滑取消</span>
@@ -148,7 +157,7 @@
 <script src="/socket.io/socket.io.js"></script>
 <script>
 (function() {
-  // ========== 全局状态 ==========
+  // ==================== 全局状态 ====================
   let currentUser = null;
   let socket = null;
   let activeNav = 'messages';
@@ -165,6 +174,8 @@
   let remoteAudio = null;
   let callInfo = null;
   let isSending = false;
+
+  // 语音录制
   let mediaRecorder = null;
   let audioChunks = [];
   let recordingStartTime = 0;
@@ -173,6 +184,7 @@
 
   const API_BASE = '';
 
+  // ==================== 工具函数 ====================
   function getFileUrl(url) {
     if (!url) return '';
     if (url.startsWith('http')) return url;
@@ -227,7 +239,7 @@
     return msg;
   }
 
-  // ========== Socket 连接 ==========
+  // ==================== Socket 连接 ====================
   function connectSocket() {
     if (socket) {
       socket.removeAllListeners();
@@ -263,6 +275,7 @@
       console.error('Socket 连接错误:', err.message);
     });
 
+    // 收到离线好友申请列表
     socket.on('pending_friend_requests', function(list) {
       console.log('收到离线好友申请列表', list);
       if (Array.isArray(list)) {
@@ -270,18 +283,21 @@
       }
     });
 
+    // 收到实时好友申请
     socket.on('friend_request_received', function(data) {
       console.log('收到实时好友申请', data);
       showFriendRequestPopup(data);
     });
 
+    // 收到聊天消息
     socket.on('chat message', function(msg) {
       normalizeMessage(msg);
 
       // 忽略自己发送的消息（已在ACK中处理）
       if (msg.from === currentUser.id) return;
 
-      var key;
+      // 确定缓存key
+      let key;
       if (msg.toType === 'group') {
         key = 'group_' + msg.to;
       } else {
@@ -292,15 +308,17 @@
         messagesCache[key] = [];
       }
 
+      // 去重
       if (!messagesCache[key].some(function(m) { return m.id === msg.id; })) {
         messagesCache[key].push(msg);
       }
 
+      // 限制缓存数量
       if (messagesCache[key].length > 500) {
         messagesCache[key].shift();
       }
 
-      // 更新最后消息文本
+      // 更新最后消息
       if (msg.type === 'text') {
         lastMessages[key] = msg.content;
       } else if (msg.type === 'image') {
@@ -315,7 +333,8 @@
         lastMessages[key] = '[视频]';
       }
 
-      var isActive = selectedChat && (
+      // 判断是否为当前聊天
+      const isActive = selectedChat && (
         (selectedChat.type === 'friend' && key === 'friend_' + selectedChat.id) ||
         (selectedChat.type === 'group' && key === 'group_' + selectedChat.id)
       );
@@ -333,6 +352,7 @@
       }
     });
 
+    // 好友相关事件
     socket.on('new_friend_request', function() {
       fetchFriendRequests();
       updateBadge();
@@ -352,12 +372,13 @@
       if (activeNav === 'contacts') switchView('contacts');
     });
 
+    // 消息删除
     socket.on('message_deleted', function(data) {
       if (!selectedChat) return;
-      var key = selectedChat.type === 'friend' ? 'friend_' + selectedChat.id : 'group_' + selectedChat.id;
+      const key = selectedChat.type === 'friend' ? 'friend_' + selectedChat.id : 'group_' + selectedChat.id;
       if (messagesCache[key]) {
         messagesCache[key] = messagesCache[key].filter(function(m) { return m.id !== data.messageId; });
-        var last = messagesCache[key].at(-1);
+        const last = messagesCache[key].at(-1);
         if (last) {
           lastMessages[key] = last.type === 'text' ? last.content : '[媒体]';
         } else {
@@ -368,8 +389,9 @@
       renderConversationList();
     });
 
+    // 清空聊天
     socket.on('chat_cleared', function(data) {
-      var key = data.chatType === 'friend' ? 'friend_' + data.chatId : 'group_' + data.chatId;
+      const key = data.chatType === 'friend' ? 'friend_' + data.chatId : 'group_' + data.chatId;
       messagesCache[key] = [];
       lastMessages[key] = '';
       unreadCounts[key] = 0;
@@ -381,7 +403,7 @@
 
     // WebRTC 信令
     socket.on('call_offer', async function(data) {
-      var isVideoCall = data.isVideo || false;
+      const isVideoCall = data.isVideo || false;
       if (confirm('用户 ' + data.from + ' 邀请你进行' + (isVideoCall ? '视频' : '语音') + '通话，是否接受？')) {
         callInfo = { peerId: data.from, isCaller: false, isVideo: isVideoCall };
         await startCall(false, data.offer);
@@ -413,25 +435,22 @@
     });
   }
 
-  // ========== 好友申请弹窗 ==========
+  // ==================== 好友申请弹窗 ====================
   function showFriendRequestPopup(data) {
     if (!data) return;
-    var fromId = data.fromId || data.from_user;
+    const fromId = data.fromId || data.from_user;
     if (!fromId) return;
-
     fetchFriendRequests();
     updateBadge();
-
     if (activeNav === 'contacts') {
       switchView('contacts');
     }
-
     alert('收到来自用户 ' + fromId + ' 的好友申请');
   }
 
-  // ========== 语音/视频通话 ==========
+  // ==================== 语音/视频通话 ====================
   async function startCall(isCaller, remoteOffer) {
-    var isVideoCall = callInfo && callInfo.isVideo;
+    const isVideoCall = callInfo && callInfo.isVideo;
 
     try {
       localStream = await navigator.mediaDevices.getUserMedia({
@@ -446,14 +465,13 @@
 
     // 视频通话：显示视频弹窗
     if (isVideoCall) {
-      var overlay = document.getElementById('videoCallOverlay');
-      var localVideo = document.getElementById('localVideo');
+      const overlay = document.getElementById('videoCallOverlay');
+      const localVideo = document.getElementById('localVideo');
       if (overlay) overlay.classList.add('active');
       if (localVideo) localVideo.srcObject = localStream;
 
-      // 控制按钮
       document.getElementById('btnMuteOverlay').onclick = function() {
-        var track = localStream.getAudioTracks()[0];
+        const track = localStream.getAudioTracks()[0];
         if (track) {
           track.enabled = !track.enabled;
           document.getElementById('btnMuteOverlay').classList.toggle('muted', !track.enabled);
@@ -461,7 +479,7 @@
       };
 
       document.getElementById('btnCameraOverlay').onclick = function() {
-        var track = localStream.getVideoTracks()[0];
+        const track = localStream.getVideoTracks()[0];
         if (track) {
           track.enabled = !track.enabled;
           document.getElementById('btnCameraOverlay').classList.toggle('off', !track.enabled);
@@ -473,7 +491,7 @@
       };
     } else {
       // 语音通话：显示语音浮层
-      var voiceTip = document.getElementById('voiceCallTip');
+      const voiceTip = document.getElementById('voiceCallTip');
       if (voiceTip) voiceTip.classList.add('active');
       document.getElementById('btnHangupVoice').onclick = function() {
         endCall(true);
@@ -496,7 +514,7 @@
 
     peerConnection.ontrack = function(e) {
       if (isVideoCall) {
-        var remoteVideo = document.getElementById('remoteVideo');
+        const remoteVideo = document.getElementById('remoteVideo');
         if (remoteVideo) remoteVideo.srcObject = e.streams[0];
       }
 
@@ -509,12 +527,12 @@
     };
 
     if (isCaller) {
-      var offer = await peerConnection.createOffer();
+      const offer = await peerConnection.createOffer();
       await peerConnection.setLocalDescription(offer);
       socket.emit('call_offer', { to: callInfo.peerId, offer: offer, isVideo: isVideoCall });
     } else if (remoteOffer) {
       await peerConnection.setRemoteDescription(new RTCSessionDescription(remoteOffer));
-      var answer = await peerConnection.createAnswer();
+      const answer = await peerConnection.createAnswer();
       await peerConnection.setLocalDescription(answer);
       socket.emit('call_answer', { to: callInfo.peerId, answer: answer });
     }
@@ -542,25 +560,25 @@
     callInfo = null;
 
     // 隐藏视频弹窗
-    var overlay = document.getElementById('videoCallOverlay');
+    const overlay = document.getElementById('videoCallOverlay');
     if (overlay) overlay.classList.remove('active');
 
     // 隐藏语音浮层
-    var voiceTip = document.getElementById('voiceCallTip');
+    const voiceTip = document.getElementById('voiceCallTip');
     if (voiceTip) voiceTip.classList.remove('active');
 
     // 清除视频源
-    var remoteVideo = document.getElementById('remoteVideo');
-    var localVideo = document.getElementById('localVideo');
+    const remoteVideo = document.getElementById('remoteVideo');
+    const localVideo = document.getElementById('localVideo');
     if (remoteVideo) remoteVideo.srcObject = null;
     if (localVideo) localVideo.srcObject = null;
   }
 
-  // ========== 语音录制 ==========
+  // ==================== 语音录制 ====================
   async function startVoiceRecording() {
     try {
-      var stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      var mimeType = MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : 'audio/mp4';
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mimeType = MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : 'audio/mp4';
       mediaRecorder = new MediaRecorder(stream, { mimeType: mimeType });
       audioChunks = [];
 
@@ -571,28 +589,28 @@
       mediaRecorder.onstop = async function() {
         stream.getTracks().forEach(function(t) { t.stop(); });
 
-        var audioBlob = new Blob(audioChunks, { type: mediaRecorder.mimeType });
-        var duration = Math.round((Date.now() - recordingStartTime) / 1000);
+        const audioBlob = new Blob(audioChunks, { type: mediaRecorder.mimeType });
+        const duration = Math.round((Date.now() - recordingStartTime) / 1000);
 
         if (duration < 1) return;
 
-        var fd = new FormData();
+        const fd = new FormData();
         fd.append('file', audioBlob, 'voice_' + Date.now() + '.webm');
 
-        var res = await fetch('/api/upload', {
+        const res = await fetch('/api/upload', {
           method: 'POST',
           body: fd,
           credentials: 'include'
         });
-        var data = await res.json();
+        const data = await res.json();
 
         if (data.url && selectedChat && socket) {
-          var key = selectedChat.type === 'friend' ? 'friend_' + selectedChat.id : 'group_' + selectedChat.id;
+          const key = selectedChat.type === 'friend' ? 'friend_' + selectedChat.id : 'group_' + selectedChat.id;
           if (!messagesCache[key]) messagesCache[key] = [];
 
           // 乐观更新
-          var tempId = 'temp_voice_' + Date.now();
-          var tempMsg = {
+          const tempId = 'temp_voice_' + Date.now();
+          const tempMsg = {
             id: tempId,
             from: currentUser.id,
             to: selectedChat.type === 'friend' ? selectedChat.id : null,
@@ -610,7 +628,7 @@
           renderConversationList();
 
           // 发送消息
-          var clientMsgId = Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+          const clientMsgId = Date.now() + '_' + Math.random().toString(36).substr(2, 9);
           socket.emit('private message', {
             clientMsgId: clientMsgId,
             to: selectedChat.id,
@@ -621,9 +639,9 @@
             duration: duration
           }, function(ack) {
             if (ack && ack.success && ack.msg) {
-              var real = normalizeMessage(ack.msg);
+              const real = normalizeMessage(ack.msg);
               if (messagesCache[key]) {
-                var idx = messagesCache[key].findIndex(function(m) { return m.id === tempId; });
+                const idx = messagesCache[key].findIndex(function(m) { return m.id === tempId; });
                 if (idx !== -1) {
                   messagesCache[key][idx] = real;
                 }
@@ -642,8 +660,8 @@
       document.getElementById('recordingTip').classList.add('active');
 
       recordingTimer = setInterval(function() {
-        var elapsed = Math.round((Date.now() - recordingStartTime) / 1000);
-        var tipText = document.querySelector('#recordingTip span:last-child');
+        const elapsed = Math.round((Date.now() - recordingStartTime) / 1000);
+        const tipText = document.querySelector('#recordingTip span:last-child');
         if (tipText) tipText.textContent = '录音中 ' + elapsed + 's  松开发送';
       }, 500);
 
@@ -664,14 +682,14 @@
     }
   }
 
-  // ========== 数据获取 ==========
+  // ==================== 数据获取 ====================
   async function fetchFriends() {
-    var d = await api('/api/friends');
+    const d = await api('/api/friends');
     friends = d.friends || [];
   }
 
   async function fetchFriendRequests() {
-    var d = await api('/api/friend-requests');
+    const d = await api('/api/friend-requests');
     friendRequests = (d.requests || []).map(function(req) {
       return {
         id: req.id,
@@ -689,22 +707,22 @@
   }
 
   async function fetchGroups() {
-    var d = await api('/api/groups');
+    const d = await api('/api/groups');
     groups = d.groups || [];
   }
 
   async function fetchNotifications() {
-    var d = await api('/api/notifications');
+    const d = await api('/api/notifications');
     notifications = d.notifications || [];
   }
 
   async function fetchMessages(chatType, chatId) {
-    var ep = chatType === 'friend' ? '/api/messages/friend/' + chatId : '/api/messages/group/' + chatId;
-    var d = await api(ep);
-    var key = chatType === 'friend' ? 'friend_' + chatId : 'group_' + chatId;
+    const ep = chatType === 'friend' ? '/api/messages/friend/' + chatId : '/api/messages/group/' + chatId;
+    const d = await api(ep);
+    const key = chatType === 'friend' ? 'friend_' + chatId : 'group_' + chatId;
     messagesCache[key] = (d.messages || []).map(normalizeMessage);
     if (d.messages && d.messages.length) {
-      var last = d.messages[d.messages.length - 1];
+      const last = d.messages[d.messages.length - 1];
       if (last.type === 'text') {
         lastMessages[key] = last.content;
       } else {
@@ -713,11 +731,11 @@
     }
   }
 
-  // ========== 渲染登录/注册 ==========
+  // ==================== 渲染登录/注册 ====================
   function renderAuth(mode) {
     if (mode === undefined) mode = 'login';
 
-    var html = '';
+    let html = '';
     html += '<div class="auth-wrapper"><div class="auth-card">';
     html += '<h2>' + (mode === 'login' ? '登录' : '注册') + '悄悄话</h2>';
     html += '<div class="input-field"><label>账号</label><input id="username" placeholder="字母+数字 4-20位"></div>';
@@ -740,9 +758,9 @@
     });
 
     document.getElementById('auth-btn').addEventListener('click', async function() {
-      var username = document.getElementById('username').value.trim();
-      var password = document.getElementById('password').value.trim();
-      var errorEl = document.getElementById('auth-error');
+      const username = document.getElementById('username').value.trim();
+      const password = document.getElementById('password').value.trim();
+      const errorEl = document.getElementById('auth-error');
       errorEl.textContent = '';
 
       if (!username || !password) {
@@ -751,10 +769,10 @@
       }
 
       if (mode === 'register') {
-        var nickname = document.getElementById('nickname') ? document.getElementById('nickname').value.trim() : '';
-        var inviteCode = document.getElementById('inviteCode') ? document.getElementById('inviteCode').value.trim() : '';
+        const nickname = document.getElementById('nickname') ? document.getElementById('nickname').value.trim() : '';
+        const inviteCode = document.getElementById('inviteCode') ? document.getElementById('inviteCode').value.trim() : '';
 
-        var result = await api('/api/register', {
+        const result = await api('/api/register', {
           method: 'POST',
           body: JSON.stringify({
             username: username,
@@ -773,7 +791,7 @@
         connectSocket();
         renderMain();
       } else {
-        var result = await api('/api/login', {
+        const result = await api('/api/login', {
           method: 'POST',
           body: JSON.stringify({
             username: username,
@@ -793,9 +811,9 @@
     });
   }
 
-  // ========== 渲染主界面 ==========
+  // ==================== 渲染主界面 ====================
   async function renderMain() {
-    var html = '';
+    let html = '';
     html += '<div class="main-layout" id="main-layout">';
     html += '<div class="sidebar" id="sidebar">';
     html += '<div style="padding:8px 14px;font-weight:600;font-size:18px;margin-bottom:16px;">🤫 悄悄话</div>';
@@ -822,16 +840,16 @@
   }
 
   function renderSidebar() {
-    var nav = document.getElementById('nav-items');
+    const nav = document.getElementById('nav-items');
     if (!nav) return;
 
-    var pending = friendRequests.filter(function(r) {
+    const pending = friendRequests.filter(function(r) {
       return r.status === 'pending' && r.to === currentUser.id;
     }).length;
 
-    var totalUnread = Object.values(unreadCounts).reduce(function(a, b) { return a + b; }, 0);
+    const totalUnread = Object.values(unreadCounts).reduce(function(a, b) { return a + b; }, 0);
 
-    var html = '';
+    let html = '';
     html += '<div class="nav-item ' + (activeNav === 'messages' ? 'active' : '') + '" data-nav="messages">💬 消息';
     if (totalUnread) html += '<span class="badge">' + totalUnread + '</span>';
     html += '</div>';
@@ -857,16 +875,16 @@
   }
 
   function renderBottomNav() {
-    var bottom = document.getElementById('bottom-nav');
+    const bottom = document.getElementById('bottom-nav');
     if (!bottom) return;
 
-    var pending = friendRequests.filter(function(r) {
+    const pending = friendRequests.filter(function(r) {
       return r.status === 'pending' && r.to === currentUser.id;
     }).length;
 
-    var totalUnread = Object.values(unreadCounts).reduce(function(a, b) { return a + b; }, 0);
+    const totalUnread = Object.values(unreadCounts).reduce(function(a, b) { return a + b; }, 0);
 
-    var html = '';
+    let html = '';
     html += '<div class="nav-item-mobile ' + (activeNav === 'messages' ? 'active' : '') + '" data-nav="messages"><span>💬</span><span>消息</span>';
     if (totalUnread) html += '<span class="badge-mobile">' + totalUnread + '</span>';
     html += '</div>';
@@ -892,7 +910,7 @@
   }
 
   function renderTopBar() {
-    var topBar = document.getElementById('top-bar');
+    const topBar = document.getElementById('top-bar');
     if (!topBar) return;
 
     topBar.innerHTML = '';
@@ -907,7 +925,7 @@
     });
 
     document.getElementById('add-friend-btn').addEventListener('click', function() {
-      var name = prompt('输入对方账号:');
+      const name = prompt('输入对方账号:');
       if (name) {
         api('/api/friend-request', {
           method: 'POST',
@@ -919,7 +937,7 @@
     });
 
     document.getElementById('invite-add-btn').addEventListener('click', function() {
-      var code = prompt('输入对方邀请码:');
+      const code = prompt('输入对方邀请码:');
       if (code) {
         api('/api/add-by-invite', {
           method: 'POST',
@@ -941,11 +959,11 @@
   }
 
   async function globalSearch(q) {
-    var d = await api('/api/search?q=' + encodeURIComponent(q));
+    const d = await api('/api/search?q=' + encodeURIComponent(q));
     if (d.error) return alert(d.error);
 
     if (d.users && d.users.length) {
-      var user = d.users[0];
+      const user = d.users[0];
       if (confirm('找到用户: ' + (user.nickname || user.username) + '，添加好友？')) {
         await api('/api/friend-request', {
           method: 'POST',
@@ -959,12 +977,12 @@
   }
 
   async function switchView(nav) {
-    var container = document.getElementById('view-container');
+    const container = document.getElementById('view-container');
     if (!container) return;
     container.innerHTML = '';
 
-    var convList = document.getElementById('conversation-list');
-    var chatWin = document.getElementById('chat-window');
+    const convList = document.getElementById('conversation-list');
+    const chatWin = document.getElementById('chat-window');
     if (convList) convList.classList.remove('mobile-hidden');
     if (chatWin) chatWin.classList.remove('mobile-active');
 
@@ -984,14 +1002,14 @@
   function renderContactsView(container) {
     container.innerHTML = '<div class="view-container" style="height:100%;overflow-y:auto;-webkit-overflow-scrolling:touch;"><div id="contacts-content"></div></div>';
 
-    var content = document.getElementById('contacts-content');
+    const content = document.getElementById('contacts-content');
     content.innerHTML = '';
     content.innerHTML += '<div class="section-title">🔔 新的朋友</div><div id="req-list"></div>';
     content.innerHTML += '<div class="section-title" style="margin-top:16px;">👤 我的好友</div><div id="friend-list"></div>';
     content.innerHTML += '<div class="section-title" style="margin-top:16px;">👥 我的群组</div><div id="group-list"></div>';
 
-    var reqList = document.getElementById('req-list');
-    var pendingReqs = friendRequests.filter(function(r) {
+    const reqList = document.getElementById('req-list');
+    const pendingReqs = friendRequests.filter(function(r) {
       return r.to === currentUser.id && r.status === 'pending';
     });
 
@@ -999,7 +1017,7 @@
       reqList.innerHTML = '<div style="padding:12px;color:var(--text-secondary);">暂无新的朋友请求</div>';
     } else {
       pendingReqs.forEach(function(req) {
-        var div = document.createElement('div');
+        const div = document.createElement('div');
         div.className = 'list-item';
         div.innerHTML = '<span>' + escapeHtml(req.fromUsername) + ' 请求添加好友</span>' +
           '<button class="btn btn-small" data-accept="' + req.id + '">同意</button>' +
@@ -1025,12 +1043,12 @@
       });
     });
 
-    var friendList = document.getElementById('friend-list');
+    const friendList = document.getElementById('friend-list');
     if (!friends.length) {
       friendList.innerHTML = '<div style="padding:12px;color:var(--text-secondary);">暂无好友</div>';
     } else {
       friends.forEach(function(f) {
-        var div = document.createElement('div');
+        const div = document.createElement('div');
         div.className = 'list-item';
         div.innerHTML = '<span><img src="' + (getFileUrl(f.avatar) || '/default-avatar.png') + '" class="avatar-sm" onerror="this.src=\'/default-avatar.png\'"> ' +
           escapeHtml(f.nickname || f.username) + ' (' + escapeHtml(f.username) + ')</span>' +
@@ -1058,12 +1076,12 @@
       });
     }
 
-    var groupList = document.getElementById('group-list');
+    const groupList = document.getElementById('group-list');
     if (!groups.length) {
       groupList.innerHTML = '<div style="padding:12px;color:var(--text-secondary);">暂无群组</div>';
     } else {
       groups.forEach(function(g) {
-        var div = document.createElement('div');
+        const div = document.createElement('div');
         div.className = 'list-item';
         div.innerHTML = '<span>' + escapeHtml(g.name) + '</span>';
         div.addEventListener('click', function() {
@@ -1079,10 +1097,10 @@
   function renderProfileView(container) {
     container.innerHTML = '<div class="view-container" style="height:100%;overflow-y:auto;padding-bottom:100px;-webkit-overflow-scrolling:touch;" id="profile-container"></div>';
 
-    var pc = document.getElementById('profile-container');
-    var userBackground = currentUser.background || currentUser.chatBackground || '';
-    var userBio = currentUser.bio || currentUser.signature || '';
-    var userCreatedAt = currentUser.createdAt || '未知';
+    const pc = document.getElementById('profile-container');
+    const userBackground = currentUser.background || currentUser.chatBackground || '';
+    const userBio = currentUser.bio || currentUser.signature || '';
+    const userCreatedAt = currentUser.createdAt || '未知';
 
     pc.innerHTML = '';
     pc.innerHTML += '<div class="card">';
@@ -1120,12 +1138,12 @@
 
     // 绑定事件
     document.getElementById('avatar-upload').addEventListener('change', async function(e) {
-      var file = e.target.files[0];
+      const file = e.target.files[0];
       if (!file) return;
-      var fd = new FormData();
+      const fd = new FormData();
       fd.append('avatar', file);
-      var res = await fetch('/api/avatar/upload', { method: 'POST', body: fd, credentials: 'include' });
-      var data = await res.json();
+      const res = await fetch('/api/avatar/upload', { method: 'POST', body: fd, credentials: 'include' });
+      const data = await res.json();
       if (data.avatar) {
         currentUser.avatar = data.avatar;
         document.getElementById('profile-avatar-preview').src = data.avatar;
@@ -1135,12 +1153,12 @@
     });
 
     document.getElementById('background-upload').addEventListener('change', async function(e) {
-      var file = e.target.files[0];
+      const file = e.target.files[0];
       if (!file) return;
-      var fd = new FormData();
+      const fd = new FormData();
       fd.append('background', file);
-      var res = await fetch('/api/background/upload', { method: 'POST', body: fd, credentials: 'include' });
-      var data = await res.json();
+      const res = await fetch('/api/background/upload', { method: 'POST', body: fd, credentials: 'include' });
+      const data = await res.json();
       if (data.chatBackground || data.url) {
         currentUser.chatBackground = data.chatBackground || data.url;
         currentUser.background = data.chatBackground || data.url;
@@ -1151,22 +1169,22 @@
     });
 
     document.getElementById('edit-profile-btn').onclick = async function() {
-      var n = prompt('昵称', currentUser.nickname);
-      var g = prompt('性别', currentUser.gender);
-      var r = prompt('地区', currentUser.region);
-      var s = prompt('签名', currentUser.signature || currentUser.bio);
+      const n = prompt('昵称', currentUser.nickname);
+      const g = prompt('性别', currentUser.gender);
+      const r = prompt('地区', currentUser.region);
+      const s = prompt('签名', currentUser.signature || currentUser.bio);
       await api('/api/profile', {
         method: 'POST',
         body: JSON.stringify({ nickname: n, gender: g, region: r, signature: s })
       });
-      var me = await api('/api/me');
+      const me = await api('/api/me');
       currentUser = me.user;
       renderMain();
     };
 
     document.getElementById('change-pwd-btn').onclick = function() {
-      var old = prompt('旧密码');
-      var newPwd = prompt('新密码');
+      const old = prompt('旧密码');
+      const newPwd = prompt('新密码');
       if (old && newPwd) {
         api('/api/change-password', {
           method: 'POST',
@@ -1186,13 +1204,13 @@
   }
 
   function renderConversationList() {
-    var list = document.getElementById('conversation-list');
+    const list = document.getElementById('conversation-list');
     if (!list) return;
 
-    var items = [];
+    const items = [];
 
     friends.forEach(function(f) {
-      var key = 'friend_' + f.id;
+      const key = 'friend_' + f.id;
       items.push({
         type: 'friend',
         id: f.id,
@@ -1205,7 +1223,7 @@
     });
 
     groups.forEach(function(g) {
-      var key = 'group_' + g.id;
+      const key = 'group_' + g.id;
       items.push({
         type: 'group',
         id: g.id,
@@ -1218,7 +1236,7 @@
     });
 
     list.innerHTML = items.map(function(i) {
-      var activeClass = (selectedChat && selectedChat.type === i.type && selectedChat.id === i.id) ? 'active' : '';
+      const activeClass = (selectedChat && selectedChat.type === i.type && selectedChat.id === i.id) ? 'active' : '';
       return '<div class="conversation-item ' + activeClass + '" data-type="' + i.type + '" data-id="' + i.id + '">' +
         '<img src="' + (getFileUrl(i.avatar) || '/default-avatar.png') + '" class="avatar-sm" onerror="this.src=\'/default-avatar.png\'">' +
         '<div class="conversation-info">' +
@@ -1238,31 +1256,33 @@
 
   async function openChatFromConversation(type, id) {
     selectedChat = { type: type, id: id };
-    var key = type === 'friend' ? 'friend_' + id : 'group_' + id;
+    const key = type === 'friend' ? 'friend_' + id : 'group_' + id;
     clearUnread(key);
     await fetchMessages(type, id);
 
-    var title;
+    let title;
     if (type === 'friend') {
-      var friend = friends.find(function(f) { return f.id === id; });
+      const friend = friends.find(function(f) { return f.id === id; });
       title = friend ? (friend.nickname || '好友') : '好友';
     } else {
-      var group = groups.find(function(g) { return g.id === id; });
+      const group = groups.find(function(g) { return g.id === id; });
       title = group ? group.name : '群聊';
     }
 
-    var chatWin = document.getElementById('chat-window');
+    const chatWin = document.getElementById('chat-window');
     chatWin.innerHTML = '';
 
-    // 聊天头部
-    chatWin.innerHTML += '<div style="padding:10px 16px;background:#f8fafc;font-weight:600;flex-shrink:0;display:flex;align-items:center;gap:8px;">';
+    // 聊天头部 - 使用chat-header类确保横向排列
+    chatWin.innerHTML += '<div class="chat-header">';
     if (window.innerWidth <= 768) {
       chatWin.innerHTML += '<button class="icon-btn" id="back-btn">←</button>';
     }
     chatWin.innerHTML += '<span>' + escapeHtml(title) + '</span>';
+    chatWin.innerHTML += '<div class="header-btns">';
     chatWin.innerHTML += '<button class="icon-btn" id="call-voice-btn" title="语音通话">📞</button>';
     chatWin.innerHTML += '<button class="icon-btn" id="call-video-btn" title="视频通话">📹</button>';
     chatWin.innerHTML += '<button class="icon-btn" id="clear-chat-btn" title="清空聊天">🗑️</button>';
+    chatWin.innerHTML += '</div>';
     chatWin.innerHTML += '</div>';
 
     // 消息区域
@@ -1289,7 +1309,7 @@
       if (e.key === 'Enter') sendMessage();
     });
 
-    var backBtn = document.getElementById('back-btn');
+    const backBtn = document.getElementById('back-btn');
     if (backBtn) {
       backBtn.addEventListener('click', function() {
         selectedChat = null;
@@ -1310,7 +1330,7 @@
     });
 
     // 语音消息按钮
-    var voiceBtn = document.getElementById('voice-record-btn');
+    const voiceBtn = document.getElementById('voice-record-btn');
     if (voiceBtn) {
       voiceBtn.addEventListener('mousedown', function(e) { e.preventDefault(); startVoiceRecording(); });
       voiceBtn.addEventListener('mouseup', function(e) { e.preventDefault(); stopVoiceRecording(); });
@@ -1360,30 +1380,30 @@
   function renderChatMessages() {
     if (!selectedChat) return;
 
-    var key = selectedChat.type === 'friend' ? 'friend_' + selectedChat.id : 'group_' + selectedChat.id;
-    var msgs = messagesCache[key] || [];
-    var ul = document.getElementById('chat-msgs');
-    var container = document.getElementById('chat-messages-container');
+    const key = selectedChat.type === 'friend' ? 'friend_' + selectedChat.id : 'group_' + selectedChat.id;
+    const msgs = messagesCache[key] || [];
+    const ul = document.getElementById('chat-msgs');
+    const container = document.getElementById('chat-messages-container');
 
     if (!ul || !container) return;
 
-    var wasNearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 150;
+    const wasNearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 150;
 
     ul.innerHTML = '';
 
     msgs.forEach(function(m) {
-      var li = document.createElement('li');
+      const li = document.createElement('li');
       li.className = 'msg-item ' + (m.from === currentUser.id ? 'self' : '');
 
       if (m.type === 'text') {
         li.textContent = m.content;
       } else if (m.type === 'image') {
-        var img = document.createElement('img');
+        const img = document.createElement('img');
         img.src = getFileUrl(m.content);
         img.loading = 'lazy';
         li.appendChild(img);
       } else if (m.type === 'file') {
-        var a = document.createElement('a');
+        const a = document.createElement('a');
         a.className = 'file-link';
         a.href = getFileUrl(m.content);
         a.download = m.fileName || 'file';
@@ -1391,25 +1411,25 @@
         a.textContent = '📄 ' + (m.fileName || '文件');
         li.appendChild(a);
       } else if (m.type === 'voice') {
-        var audio = document.createElement('audio');
+        const audio = document.createElement('audio');
         audio.controls = true;
         audio.src = getFileUrl(m.content);
         audio.style.maxWidth = '200px';
         li.appendChild(audio);
         if (m.duration) {
-          var dur = document.createElement('span');
+          const dur = document.createElement('span');
           dur.style.cssText = 'font-size:12px; color:#888; margin-left:8px;';
           dur.textContent = m.duration + 's';
           li.appendChild(dur);
         }
       } else if (m.type === 'video') {
-        var video = document.createElement('video');
+        const video = document.createElement('video');
         video.controls = true;
         video.src = getFileUrl(m.content);
         video.style.maxWidth = '100%';
         li.appendChild(video);
       } else if (m.type === 'emoji') {
-        var span = document.createElement('span');
+        const span = document.createElement('span');
         span.style.fontSize = '48px';
         span.style.lineHeight = '1';
         span.textContent = m.content;
@@ -1418,8 +1438,7 @@
         li.appendChild(span);
       }
 
-      // 删除按钮
-      var delBtn = document.createElement('button');
+      const delBtn = document.createElement('button');
       delBtn.className = 'msg-delete-btn';
       delBtn.textContent = '×';
       delBtn.addEventListener('click', async function(e) {
@@ -1450,24 +1469,24 @@
       return;
     }
 
-    var input = document.getElementById('msg-input');
+    const input = document.getElementById('msg-input');
     if (!input || !input.value.trim()) return;
 
     isSending = true;
-    var content = input.value.trim();
+    const content = input.value.trim();
     input.value = '';
 
     // 判断是否为纯表情消息
-    var emojiRegex = /^[\p{Emoji}\s]+$/u;
-    var msgType = emojiRegex.test(content) ? 'emoji' : 'text';
+    const emojiRegex = /^[\p{Emoji}\s]+$/u;
+    const msgType = emojiRegex.test(content) ? 'emoji' : 'text';
 
-    var clientMsgId = Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+    const clientMsgId = Date.now() + '_' + Math.random().toString(36).substr(2, 9);
 
     // 乐观更新
     if (selectedChat) {
-      var key = selectedChat.type === 'friend' ? 'friend_' + selectedChat.id : 'group_' + selectedChat.id;
+      const key = selectedChat.type === 'friend' ? 'friend_' + selectedChat.id : 'group_' + selectedChat.id;
       if (!messagesCache[key]) messagesCache[key] = [];
-      var tempMsg = {
+      const tempMsg = {
         id: 'temp_' + clientMsgId,
         from: currentUser.id,
         to: selectedChat.type === 'friend' ? selectedChat.id : null,
@@ -1482,8 +1501,8 @@
       renderConversationList();
     }
 
-    var timeoutId;
-    var ackReceived = false;
+    let timeoutId;
+    let ackReceived = false;
 
     socket.emit('private message', {
       clientMsgId: clientMsgId,
@@ -1497,11 +1516,11 @@
       isSending = false;
 
       if (ack && ack.success && ack.msg) {
-        var realMsg = normalizeMessage(ack.msg);
+        const realMsg = normalizeMessage(ack.msg);
         if (selectedChat) {
-          var key = selectedChat.type === 'friend' ? 'friend_' + selectedChat.id : 'group_' + selectedChat.id;
+          const key = selectedChat.type === 'friend' ? 'friend_' + selectedChat.id : 'group_' + selectedChat.id;
           if (messagesCache[key]) {
-            var tempIndex = messagesCache[key].findIndex(function(m) {
+            const tempIndex = messagesCache[key].findIndex(function(m) {
               return m.id === 'temp_' + clientMsgId;
             });
             if (tempIndex !== -1) {
@@ -1519,7 +1538,7 @@
       } else {
         if (ack && ack.error) alert(ack.error);
         if (selectedChat) {
-          var key = selectedChat.type === 'friend' ? 'friend_' + selectedChat.id : 'group_' + selectedChat.id;
+          const key = selectedChat.type === 'friend' ? 'friend_' + selectedChat.id : 'group_' + selectedChat.id;
           if (messagesCache[key]) {
             messagesCache[key] = messagesCache[key].filter(function(m) {
               return m.id !== 'temp_' + clientMsgId;
@@ -1536,7 +1555,7 @@
         isSending = false;
         alert('发送超时，请稍后重试');
         if (selectedChat) {
-          var key = selectedChat.type === 'friend' ? 'friend_' + selectedChat.id : 'group_' + selectedChat.id;
+          const key = selectedChat.type === 'friend' ? 'friend_' + selectedChat.id : 'group_' + selectedChat.id;
           if (messagesCache[key]) {
             messagesCache[key] = messagesCache[key].filter(function(m) {
               return m.id !== 'temp_' + clientMsgId;
@@ -1550,23 +1569,23 @@
   }
 
   function showEmojiPicker() {
-    var input = document.getElementById('msg-input');
+    const input = document.getElementById('msg-input');
     if (!input) return;
 
-    var emojis = ['😀','😂','🤣','😊','😍','🤩','😘','😜','😎','🤔','😴','😭','🥺','😡','👍','👎','👏','🙌','💪','❤️','🔥','⭐','🎉','💯','✅','❌','⚠️','💡','📌','🎵','🌈','🍕'];
+    const emojis = ['😀','😂','🤣','😊','😍','🤩','😘','😜','😎','🤔','😴','😭','🥺','😡','👍','👎','👏','🙌','💪','❤️','🔥','⭐','🎉','💯','✅','❌','⚠️','💡','📌','🎵','🌈','🍕'];
 
-    var existing = document.getElementById('emoji-picker');
+    const existing = document.getElementById('emoji-picker');
     if (existing) {
       existing.remove();
       return;
     }
 
-    var picker = document.createElement('div');
+    const picker = document.createElement('div');
     picker.id = 'emoji-picker';
     picker.style.cssText = 'position:absolute;bottom:70px;left:60px;background:white;border:1px solid var(--border);border-radius:12px;padding:8px;display:flex;flex-wrap:wrap;gap:4px;max-width:280px;box-shadow:0 4px 12px rgba(0,0,0,0.15);z-index:999;';
 
     emojis.forEach(function(emoji) {
-      var btn = document.createElement('button');
+      const btn = document.createElement('button');
       btn.textContent = emoji;
       btn.style.cssText = 'font-size:24px;width:36px;height:36px;border:none;background:transparent;cursor:pointer;border-radius:6px;';
       btn.addEventListener('click', function() {
@@ -1579,7 +1598,7 @@
       picker.appendChild(btn);
     });
 
-    var inputArea = document.querySelector('.msg-input-area');
+    const inputArea = document.querySelector('.msg-input-area');
     if (inputArea) {
       inputArea.appendChild(picker);
     }
@@ -1595,30 +1614,30 @@
   }
 
   async function handleFileUpload(e) {
-    var files = e.target.files;
+    const files = e.target.files;
     if (!files.length) return;
 
-    for (var i = 0; i < files.length; i++) {
-      var file = files[i];
-      var MAX_FILE_SIZE = 15 * 1024 * 1024;
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      const MAX_FILE_SIZE = 15 * 1024 * 1024;
       if (file.size > MAX_FILE_SIZE) {
         alert('文件不能超过15MB');
         continue;
       }
 
-      var fd = new FormData();
+      const fd = new FormData();
       fd.append('file', file);
 
-      var res = await fetch('/api/upload', {
+      const res = await fetch('/api/upload', {
         method: 'POST',
         body: fd,
         credentials: 'include'
       });
-      var data = await res.json();
+      const data = await res.json();
 
       if (data.url) {
-        var type = 'file';
-        var duration = null;
+        let type = 'file';
+        let duration = null;
 
         if (file.type.startsWith('image/')) {
           type = 'image';
@@ -1627,7 +1646,7 @@
         } else if (file.type.startsWith('audio/')) {
           type = 'voice';
           duration = await new Promise(function(resolve) {
-            var audio = document.createElement('audio');
+            const audio = document.createElement('audio');
             audio.src = URL.createObjectURL(file);
             audio.onloadedmetadata = function() {
               resolve(Math.round(audio.duration || 0));
@@ -1640,7 +1659,7 @@
           });
         }
 
-        var clientMsgId = Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+        const clientMsgId = Date.now() + '_' + Math.random().toString(36).substr(2, 9);
         socket.emit('private message', {
           clientMsgId: clientMsgId,
           to: selectedChat.id,
@@ -1667,10 +1686,10 @@
     renderBottomNav();
   }
 
-  // ========== 初始化 ==========
+  // ==================== 初始化 ====================
   (async function init() {
     try {
-      var data = await api('/api/me');
+      const data = await api('/api/me');
       if (data.user) {
         currentUser = data.user;
         connectSocket();
