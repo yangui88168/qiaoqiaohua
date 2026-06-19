@@ -479,7 +479,7 @@
       // WebRTC 信令
       socket.on('call_offer', async function(data) {
         if (confirm('用户 ' + data.from + ' 邀请你进行视频通话，是否接受？')) {
-          callInfo = { peerId: data.from, isCaller: false };
+          callInfo = { peerId: data.from, isCaller: false, isVideo: true };
           await startCall(false, data.offer);
         } else {
           socket.emit('call_reject', { to: data.from });
@@ -526,22 +526,27 @@
       alert('收到来自用户 ' + fromId + ' 的好友申请');
     }
 
-    // ========== 视频通话 ==========
+    // ========== 视频/语音通话 ==========
 
     async function startCall(isCaller, remoteOffer) {
+      // 判断是否为视频通话
+      var isVideoCall = callInfo && callInfo.isVideo;
+
       try {
-        localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
+        localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: isVideoCall });
       } catch (e) {
         alert('无法获取摄像头/麦克风权限');
         endCall(false);
         return;
       }
 
-      // 显示视频弹窗
-      var overlay = document.getElementById('videoCallOverlay');
-      var localVideo = document.getElementById('localVideo');
-      if (overlay) overlay.classList.add('active');
-      if (localVideo) localVideo.srcObject = localStream;
+      // 只有视频通话才显示视频弹窗
+      if (isVideoCall) {
+        var overlay = document.getElementById('videoCallOverlay');
+        var localVideo = document.getElementById('localVideo');
+        if (overlay) overlay.classList.add('active');
+        if (localVideo) localVideo.srcObject = localStream;
+      }
 
       peerConnection = new RTCPeerConnection({
         iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
@@ -558,8 +563,10 @@
       };
 
       peerConnection.ontrack = function(e) {
-        var remoteVideo = document.getElementById('remoteVideo');
-        if (remoteVideo) remoteVideo.srcObject = e.streams[0];
+        if (isVideoCall) {
+          var remoteVideo = document.getElementById('remoteVideo');
+          if (remoteVideo) remoteVideo.srcObject = e.streams[0];
+        }
 
         if (!remoteAudio) {
           remoteAudio = new Audio();
@@ -580,22 +587,24 @@
         socket.emit('call_answer', { to: callInfo.peerId, answer: answer });
       }
 
-      // 视频控制按钮
-      document.getElementById('btnMute').onclick = function() {
-        var track = localStream.getAudioTracks()[0];
-        if (track) {
-          track.enabled = !track.enabled;
-          document.getElementById('btnMute').classList.toggle('muted', !track.enabled);
-        }
-      };
+      // 视频控制按钮（仅视频通话时有效）
+      if (isVideoCall) {
+        document.getElementById('btnMute').onclick = function() {
+          var track = localStream.getAudioTracks()[0];
+          if (track) {
+            track.enabled = !track.enabled;
+            document.getElementById('btnMute').classList.toggle('muted', !track.enabled);
+          }
+        };
 
-      document.getElementById('btnCamera').onclick = function() {
-        var track = localStream.getVideoTracks()[0];
-        if (track) {
-          track.enabled = !track.enabled;
-          document.getElementById('btnCamera').classList.toggle('off', !track.enabled);
-        }
-      };
+        document.getElementById('btnCamera').onclick = function() {
+          var track = localStream.getVideoTracks()[0];
+          if (track) {
+            track.enabled = !track.enabled;
+            document.getElementById('btnCamera').classList.toggle('off', !track.enabled);
+          }
+        };
+      }
 
       document.getElementById('btnHangup').onclick = function() {
         endCall(true);
@@ -1309,15 +1318,17 @@
         voiceBtn.addEventListener('touchcancel', function() { if (isRecording) stopVoiceRecording(); });
       }
 
+      // 语音通话按钮 - 修复：设置 isVideo: false
       document.getElementById('call-voice-btn').addEventListener('click', function() {
         if (!selectedChat || selectedChat.type !== 'friend') return alert('仅支持好友语音通话');
-        callInfo = { peerId: selectedChat.id, isCaller: true };
+        callInfo = { peerId: selectedChat.id, isCaller: true, isVideo: false };
         startCall(true);
       });
 
+      // 视频通话按钮 - 修复：设置 isVideo: true
       document.getElementById('call-video-btn').addEventListener('click', function() {
         if (!selectedChat || selectedChat.type !== 'friend') return alert('仅支持好友视频通话');
-        callInfo = { peerId: selectedChat.id, isCaller: true };
+        callInfo = { peerId: selectedChat.id, isCaller: true, isVideo: true };
         startCall(true);
       });
 
